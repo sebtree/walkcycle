@@ -679,12 +679,12 @@ boxShadow:'0 4px 16px rgba(42,35,24,0.15)'}}>
   {/* Header */}
   <div style={{padding:'8px 16px 7px',background:T.paperDk,borderBottom:`1px solid ${T.border}`,
                display:'flex',flexDirection:'column',alignItems:'center',gap:2}}>
-    <span style={{fontFamily:"'Rye', 'Georgia', serif",fontSize:19,color:T.ink,
+    <span style={{fontFamily:"'Rye', 'Georgia', serif",fontSize:19,color:'#0D0A05',
                   letterSpacing:'0.04em',lineHeight:1,
                   textShadow:`1px 1px 0 ${T.border}, 0 0 1px rgba(42,35,24,0.15)`}}>
       Seb's Silly Walks Studio
     </span>
-    <span style={{fontFamily:"'Courier New', monospace",fontSize:8,color:T.ink3,
+    <span style={{fontFamily:"'Courier New', monospace",fontSize:8,color:T.ink2,
                   letterSpacing:'0.2em',textTransform:'uppercase'}}>
       2D animation reference tool
     </span>
