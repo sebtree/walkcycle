@@ -595,16 +595,18 @@ const off=document.createElement('canvas');off.width=W*res;off.height=H*res;
 const oc=off.getContext('2d');
 let blob,filename;
 if(mode==='spritesheet'){
-const sh=document.createElement('canvas');sh.width=W*res*dc;sh.height=H*res;
+const cols=Math.ceil(Math.sqrt(dc)), rows=Math.ceil(dc/cols);
+const sh=document.createElement('canvas');sh.width=W*res*cols;sh.height=H*res*rows;
 const sc=sh.getContext('2d');
 for(let d=0;d<dc;d++){
 const rp=d*p.animOn*TAU/N; oc.save();if(res>1)oc.scale(res,res);
 renderFrame(off,rp,W/2,p,st,{forExport:true,transparent:expTrans});
-oc.restore();sc.drawImage(off,d*W*res,0);
+oc.restore();
+sc.drawImage(off,(d%cols)*W*res,Math.floor(d/cols)*H*res);
 setExpPct(Math.round((d+1)/dc*100));await new Promise(r=>setTimeout(r,15));
 }
 blob=await canvasToBlob(sh);
-filename=`walk_spritesheet_${dc}drw.png`;
+filename=`walk_spritesheet_${cols}x${rows}_${dc}drw.png`;
 } else {
 const zip=new JSZip();
 for(let d=0;d<dc;d++){
@@ -906,7 +908,7 @@ boxShadow:'0 4px 16px rgba(42,35,24,0.15)'}}>
       <div style={{display:'flex',gap:3}}>
         {[1,2].map(r=><button key={r} onClick={()=>setExpRes(r)} style={chip(expRes===r)}>{r}×</button>)}
       </div>
-      <span style={{fontSize:9,color:T.ink3}}>{dc} {params.animOn===2?'drawings (2s)':'frames'} · {W*expRes}×{H*expRes}px</span>
+      <span style={{fontSize:9,color:T.ink3}}>{dc} {params.animOn===2?'drawings (2s)':'frames'} · {W*expRes}×{H*expRes}px per frame · sheet {Math.ceil(Math.sqrt(dc))}×{Math.ceil(dc/Math.ceil(Math.sqrt(dc)))} grid</span>
     </div>
     <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
       <button onClick={()=>doExport('sequence')} disabled={exporting}
