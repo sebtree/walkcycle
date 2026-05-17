@@ -1,3 +1,2 @@
-export default function App() {
-  return <div>Walkcycle</div>
-}
+import WalkCycle from './WalkCycle';
+export default function App() { return <WalkCycle />; }
