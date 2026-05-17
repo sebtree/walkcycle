@@ -580,6 +580,21 @@ setUserPresets(v=>[...v,preset]); setSaveName(''); setSavingPre(false);
 const handleDelPre=async id=>{await store.del(`wcs:preset:${id}`);setUserPresets(v=>v.filter(p=>p.id!==id));};
 
 // Export
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+const savePng=(canvas,filename)=>new Promise(resolve=>{
+  canvas.toBlob(blob=>{
+    const url=URL.createObjectURL(blob);
+    if(isIOS){
+      window.open(url,'_blank');
+      setTimeout(()=>URL.revokeObjectURL(url),2000);
+    } else {
+      const a=document.createElement('a');a.href=url;a.download=filename;
+      document.body.appendChild(a);a.click();document.body.removeChild(a);
+      setTimeout(()=>URL.revokeObjectURL(url),100);
+    }
+    resolve();
+  },'image/png');
+});
 const doExport=async mode=>{
 setExporting(true);
 const {params:p,style:st}=live.current;
@@ -595,15 +610,13 @@ renderFrame(off,rp,W/2,p,st,{forExport:true,transparent:expTrans});
 oc.restore();sc.drawImage(off,d*W*res,0);
 setExpPct(Math.round((d+1)/dc*100));await new Promise(r=>setTimeout(r,15));
 }
-const a=document.createElement('a');a.href=sh.toDataURL('image/png');
-a.download=`walk_spritesheet_${dc}drw.png`;a.click();
+await savePng(sh,`walk_spritesheet_${dc}drw.png`);
 } else {
 for(let d=0;d<dc;d++){
 const rp=d*p.animOn*TAU/N; oc.save();if(res>1)oc.scale(res,res);
 renderFrame(off,rp,W/2,p,st,{forExport:true,transparent:expTrans});
 oc.restore();
-const a=document.createElement('a');a.href=off.toDataURL('image/png');
-a.download=`walk_${p.animOn>1?'drw':'fr'}_${String(d+1).padStart(3,'0')}.png`;a.click();
+await savePng(off,`walk_${p.animOn>1?'drw':'fr'}_${String(d+1).padStart(3,'0')}.png`);
 setExpPct(Math.round((d+1)/dc*100));await new Promise(r=>setTimeout(r,90));
 }
 }
@@ -917,6 +930,7 @@ boxShadow:'0 4px 16px rgba(42,35,24,0.15)'}}>
       </div>
     )}
     <p style={{marginTop:8,fontSize:9,color:T.ink4,lineHeight:1.6,fontStyle:'italic',margin:'8px 0 0'}}>
+      {isIOS&&'On iOS: each frame opens in a new tab — long-press the image to save. '}
       Exports clean frames — onion skins, key poses and ghost trail excluded.
       {params.animOn===2&&` On 2s: ${dc} unique drawings, each held 2 frames.`}
     </p>
