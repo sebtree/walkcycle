@@ -456,7 +456,7 @@ return th.toDataURL('image/jpeg',0.75);
 const T = {
 paper:   '#F4EFE4', paperDk:'#E8E2D2', paperLt:'#FAF8F3',
 border:  '#C8B99A', borderLt:'#DDD5C0',
-ink:     '#2A2318', ink2:'#6B5E4A', ink3:'#9A8C7C', ink4:'#BFB4A4',
+ink:     '#2A2318', ink2:'#574A38', ink3:'#7A6C5C', ink4:'#9E9080',
 blue:    '#4A6FA5', // blue pencil -- active states
 red:     '#B84040', // red pencil -- delete/danger
 amber:   '#C07830', // warm amber -- secondary accent
