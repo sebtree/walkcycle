@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import JSZip from "jszip";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const W = 480, H = 320, GY = Math.round(H * 0.77), TAU = Math.PI * 2;
@@ -581,20 +582,18 @@ const handleDelPre=async id=>{await store.del(`wcs:preset:${id}`);setUserPresets
 
 // Export
 const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
-const savePng=(canvas,filename)=>new Promise(resolve=>{
-  canvas.toBlob(blob=>{
-    const url=URL.createObjectURL(blob);
-    if(isIOS){
-      window.open(url,'_blank');
-      setTimeout(()=>URL.revokeObjectURL(url),2000);
-    } else {
-      const a=document.createElement('a');a.href=url;a.download=filename;
-      document.body.appendChild(a);a.click();document.body.removeChild(a);
-      setTimeout(()=>URL.revokeObjectURL(url),100);
-    }
-    resolve();
-  },'image/png');
-});
+const saveBlob=(blob,filename)=>{
+  const url=URL.createObjectURL(blob);
+  if(isIOS){
+    window.open(url,'_blank');
+    setTimeout(()=>URL.revokeObjectURL(url),2000);
+  } else {
+    const a=document.createElement('a');a.href=url;a.download=filename;
+    document.body.appendChild(a);a.click();document.body.removeChild(a);
+    setTimeout(()=>URL.revokeObjectURL(url),100);
+  }
+};
+const canvasToBlob=canvas=>new Promise(res=>canvas.toBlob(res,'image/png'));
 const doExport=async mode=>{
 setExporting(true);
 const {params:p,style:st}=live.current;
@@ -610,15 +609,19 @@ renderFrame(off,rp,W/2,p,st,{forExport:true,transparent:expTrans});
 oc.restore();sc.drawImage(off,d*W*res,0);
 setExpPct(Math.round((d+1)/dc*100));await new Promise(r=>setTimeout(r,15));
 }
-await savePng(sh,`walk_spritesheet_${dc}drw.png`);
+saveBlob(await canvasToBlob(sh),`walk_spritesheet_${dc}drw.png`);
 } else {
+const zip=new JSZip();
 for(let d=0;d<dc;d++){
 const rp=d*p.animOn*TAU/N; oc.save();if(res>1)oc.scale(res,res);
 renderFrame(off,rp,W/2,p,st,{forExport:true,transparent:expTrans});
 oc.restore();
-await savePng(off,`walk_${p.animOn>1?'drw':'fr'}_${String(d+1).padStart(3,'0')}.png`);
-setExpPct(Math.round((d+1)/dc*100));await new Promise(r=>setTimeout(r,90));
+const filename=`walk_${p.animOn>1?'drw':'fr'}_${String(d+1).padStart(3,'0')}.png`;
+zip.file(filename, await canvasToBlob(off));
+setExpPct(Math.round((d+1)/dc*50));await new Promise(r=>setTimeout(r,15));
 }
+const zipBlob=await zip.generateAsync({type:'blob'},meta=>{setExpPct(50+Math.round(meta.percent/2));});
+saveBlob(zipBlob,`walk_sequence_${dc}${p.animOn>1?'drw':'fr'}.zip`);
 }
 setExporting(false);setExpPct(0);
 };
@@ -915,7 +918,7 @@ boxShadow:'0 4px 16px rgba(42,35,24,0.15)'}}>
         style={{background:exporting?T.paperDk:T.ink,border:`1px solid ${T.ink}`,
                 color:exporting?T.ink3:T.paper,borderRadius:3,padding:'7px 14px',
                 cursor:exporting?'not-allowed':'pointer',fontSize:10,letterSpacing:'0.1em',fontFamily:'inherit',textTransform:'uppercase'}}>
-        {exporting?`${expPct}%  working...`:'↓ PNG Sequence'}
+        {exporting?`${expPct}%  working...`:'↓ PNG Sequence (zip)'}
       </button>
       <button onClick={()=>doExport('spritesheet')} disabled={exporting}
         style={{background:'transparent',border:`1px solid ${T.border}`,
@@ -930,8 +933,8 @@ boxShadow:'0 4px 16px rgba(42,35,24,0.15)'}}>
       </div>
     )}
     <p style={{marginTop:8,fontSize:9,color:T.ink4,lineHeight:1.6,fontStyle:'italic',margin:'8px 0 0'}}>
-      {isIOS&&'On iOS: each frame opens in a new tab — long-press the image to save. '}
-      Exports clean frames — onion skins, key poses and ghost trail excluded.
+      {isIOS&&'On iOS: tap the file to open it, then use the share sheet to save. '}
+      Sequence exports as a single zip. Spritesheet exports as one PNG. Onion skins, key poses and ghost trail excluded.
       {params.animOn===2&&` On 2s: ${dc} unique drawings, each held 2 frames.`}
     </p>
   </div>
