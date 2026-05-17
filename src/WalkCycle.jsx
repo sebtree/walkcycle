@@ -677,15 +677,17 @@ border:`1px solid ${T.border}`,borderRadius:4,overflow:'hidden',
 boxShadow:'0 4px 16px rgba(42,35,24,0.15)'}}>
 
   {/* Header */}
-  <div style={{padding:'5px 14px',background:T.paperDk,borderBottom:`1px solid ${T.border}`,
-               display:'flex',alignItems:'center',justifyContent:'space-between'}}>
-    <div style={{display:'flex',alignItems:'center',gap:8}}>
-      <span style={{fontSize:11}}>✏</span>
-      <span style={{fontSize:10,fontWeight:'bold',letterSpacing:'0.22em',color:T.ink,textTransform:'uppercase'}}>
-        Walk Cycle Studio
-      </span>
-    </div>
-    <span style={{fontSize:8,color:T.ink4,letterSpacing:'0.1em'}}>animation reference</span>
+  <div style={{padding:'8px 16px 7px',background:T.paperDk,borderBottom:`1px solid ${T.border}`,
+               display:'flex',flexDirection:'column',alignItems:'center',gap:2}}>
+    <span style={{fontFamily:"'Rye', 'Georgia', serif",fontSize:19,color:T.ink,
+                  letterSpacing:'0.04em',lineHeight:1,
+                  textShadow:`1px 1px 0 ${T.border}, 0 0 1px rgba(42,35,24,0.15)`}}>
+      Seb's Silly Walks Studio
+    </span>
+    <span style={{fontFamily:"'Courier New', monospace",fontSize:8,color:T.ink3,
+                  letterSpacing:'0.2em',textTransform:'uppercase'}}>
+      2D animation reference tool
+    </span>
   </div>
 
   {/* Canvas */}
