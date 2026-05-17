@@ -508,15 +508,19 @@ const [expPct,      setExpPct]      = useState(0);
 const [expRes,      setExpRes]      = useState(1);
 const [expTrans,    setExpTrans]    = useState(false);
 const [downloadReady, setDownloadReady] = useState(null);
-const [userPresets, setUserPresets] = useState([]);
-const [savingPre,   setSavingPre]   = useState(false);
-const [saveName,    setSaveName]    = useState('');
+const [userPresets,   setUserPresets]   = useState([]);
+const [savingPre,     setSavingPre]     = useState(false);
+const [saveName,      setSaveName]      = useState('');
+const [activePreset,  setActivePreset]  = useState(null);
+const [importCode,    setImportCode]    = useState('');
+const [importErr,     setImportErr]     = useState(false);
+const [copyMsg,       setCopyMsg]       = useState('');
 
 live.current = {params,style,playback,keyPoses,onionOn,onionCount};
-const setP  = (key,val) => setParams(p=>({...p,[key]:val}));
+const setP  = (key,val) => { setActivePreset(null); setParams(p=>({...p,[key]:val})); };
 const setSt = (key,val) => setStyle(s=>({...s,[key]:val}));
 
-// Load saved presets
+// Load saved presets + read URL hash
 useEffect(()=>{
 (async()=>{
 try{
@@ -526,7 +530,26 @@ for(const k of (keys?.keys||[])){const r=await store.get(k);if(r?.value) loaded.
 setUserPresets(loaded.sort((a,b)=>a.createdAt-b.createdAt));
 }catch{}
 })();
+const hash=window.location.hash.slice(1);
+if(hash){try{const p=JSON.parse(atob(hash));setParams(prev=>({...prev,...p}));}catch{}}
 },[]);
+
+// Share helpers
+const makeCode=()=>btoa(JSON.stringify(live.current.params));
+const flashMsg=msg=>{setCopyMsg(msg);setTimeout(()=>setCopyMsg(''),1800);};
+const copyCode=()=>{navigator.clipboard.writeText(makeCode()).then(()=>flashMsg('Code copied!'));};
+const copyLink=()=>{
+  const code=makeCode();
+  history.replaceState(null,'',`#${code}`);
+  navigator.clipboard.writeText(window.location.href).then(()=>flashMsg('Link copied!'));
+};
+const doImport=code=>{
+  try{
+    const p=JSON.parse(atob(code.trim()));
+    setParams(prev=>({...prev,...p,fps:prev.fps,animOn:prev.animOn}));
+    setActivePreset(null);setImportCode('');setImportErr(false);
+  }catch{setImportErr(true);}
+};
 
 // Animation loop
 useEffect(()=>{
@@ -573,7 +596,7 @@ const stepFwd=()=>{const N=cycLen(live.current.params.fps,live.current.params.sp
 const stepBwd=()=>{const N=cycLen(live.current.params.fps,live.current.params.speed);setPlayback('paused');phaseRef.current-=TAU/N*live.current.params.animOn;};
 
 // Presets
-const applyPreset=pre=>setParams(p=>({...p,...pre,fps:p.fps,animOn:p.animOn}));
+const applyPreset=(pre,name)=>{setParams(p=>({...p,...pre,fps:p.fps,animOn:p.animOn}));setActivePreset(name||null);};
 const handleSavePre=async()=>{
 if(!saveName.trim()) return;
 const id=`${Date.now()}`;
@@ -591,6 +614,7 @@ if(downloadReady){URL.revokeObjectURL(downloadReady.url);setDownloadReady(null);
 setExporting(true);
 const {params:p,style:st}=live.current;
 const N=cycLen(p.fps,p.speed),dc=Math.ceil(N/p.animOn),res=expRes;
+const baseName=(activePreset||'walk').toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'');
 const off=document.createElement('canvas');off.width=W*res;off.height=H*res;
 const oc=off.getContext('2d');
 let blob,filename;
@@ -606,7 +630,7 @@ sc.drawImage(off,(d%cols)*W*res,Math.floor(d/cols)*H*res);
 setExpPct(Math.round((d+1)/dc*100));await new Promise(r=>setTimeout(r,15));
 }
 blob=await canvasToBlob(sh);
-filename=`walk_spritesheet_${cols}x${rows}_${dc}drw.png`;
+filename=`${baseName}_spritesheet_${cols}x${rows}_${dc}drw.png`;
 } else {
 const zip=new JSZip();
 for(let d=0;d<dc;d++){
@@ -617,7 +641,7 @@ zip.file(`walk_${p.animOn>1?'drw':'fr'}_${String(d+1).padStart(3,'0')}.png`, awa
 setExpPct(Math.round((d+1)/dc*50));await new Promise(r=>setTimeout(r,15));
 }
 blob=await zip.generateAsync({type:'blob'},meta=>{setExpPct(50+Math.round(meta.percent/2));});
-filename=`walk_sequence_${dc}${p.animOn>1?'drw':'fr'}.zip`;
+filename=`${baseName}_sequence_${dc}${p.animOn>1?'drw':'fr'}.zip`;
 }
 setExporting(false);setExpPct(0);
 setDownloadReady({url:URL.createObjectURL(blob),filename});
@@ -836,6 +860,27 @@ boxShadow:'0 4px 16px rgba(42,35,24,0.15)'}}>
     {tab==='presets'&&(
       <div style={tabBody}>
         <div style={sec}>
+          <div style={secLbl}>Share</div>
+          <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center'}}>
+            <button onClick={copyCode} style={{...tgl(false),padding:'5px 12px',fontSize:10}}>⧉ Copy Code</button>
+            <button onClick={copyLink} style={{...tgl(false),padding:'5px 12px',fontSize:10}}>⧉ Copy Link</button>
+            {copyMsg&&<span style={{fontSize:9,color:T.blue}}>{copyMsg}</span>}
+          </div>
+          <div style={{display:'flex',gap:6}}>
+            <input value={importCode} onChange={e=>{setImportCode(e.target.value);setImportErr(false);}}
+              placeholder="Paste code to import…" onKeyDown={e=>e.key==='Enter'&&doImport(importCode)}
+              style={{flex:1,background:T.paper,border:`1px solid ${importErr?T.red:T.border}`,color:T.ink,
+                      borderRadius:3,padding:'5px 9px',fontSize:10,fontFamily:'inherit',outline:'none'}}/>
+            <button onClick={()=>doImport(importCode)}
+              style={{background:T.ink,border:'none',color:T.paper,borderRadius:3,
+                      padding:'5px 10px',cursor:'pointer',fontSize:10,fontFamily:'inherit'}}>
+              Import
+            </button>
+          </div>
+          {importErr&&<span style={{fontSize:9,color:T.red}}>Invalid code</span>}
+        </div>
+        <div style={divider}/>
+        <div style={sec}>
           <div style={secLbl}>Save Current Settings</div>
           {!savingPre
             ? <button onClick={()=>setSavingPre(true)} style={{...tgl(false),padding:'6px 14px',fontSize:10,alignSelf:'flex-start'}}>+ Save as Preset</button>
@@ -858,7 +903,7 @@ boxShadow:'0 4px 16px rgba(42,35,24,0.15)'}}>
           <div style={secLbl}>Built-in</div>
           <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
             {Object.keys(SYSTEM_PRESETS).map(name=>(
-              <button key={name} onClick={()=>applyPreset(SYSTEM_PRESETS[name])}
+              <button key={name} onClick={()=>applyPreset(SYSTEM_PRESETS[name],name)}
                 style={{background:T.paper,border:`1px solid ${T.border}`,color:T.ink2,
                         borderRadius:3,padding:'5px 14px',cursor:'pointer',fontSize:10,
                         letterSpacing:'0.08em',fontFamily:'inherit',textTransform:'uppercase'}}
@@ -890,7 +935,7 @@ boxShadow:'0 4px 16px rgba(42,35,24,0.15)'}}>
                 <div style={{fontSize:9,color:T.ink4,marginTop:2}}>{new Date(pre.createdAt).toLocaleDateString()}</div>
               </div>
               <div style={{display:'flex',gap:5,flexShrink:0}}>
-                <button onClick={()=>applyPreset(pre.params)} style={{...tgl(false),padding:'4px 10px',fontSize:9}}>Apply</button>
+                <button onClick={()=>applyPreset(pre.params,pre.name)} style={{...tgl(false),padding:'4px 10px',fontSize:9}}>Apply</button>
                 <button onClick={()=>handleDelPre(pre.id)} style={{...tgl(true,true),padding:'4px 8px',fontSize:9}}>✕</button>
               </div>
             </div>
