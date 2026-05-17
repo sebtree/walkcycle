@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from “react”;
+import { useState, useEffect, useRef } from "react";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const W = 480, H = 320, GY = Math.round(H * 0.77), TAU = Math.PI * 2;
@@ -23,13 +23,13 @@ return { elbow:{x:eX,y:eY}, hand:{x:eX+Math.sin(fa)*dir*fA, y:eY+Math.cos(fa)*fA
 // ── Foot drawing ──────────────────────────────────────────────────────────────
 // One continuous foot-angle formula through all phases. No mode switching.
 //
-// The “geometry angle”: the exact angle `a` that places the ball of foot at GY
+// The "geometry angle": the exact angle `a` that places the ball of foot at GY
 // given the current ankle height.  If ankle is h px above GY and metatarsal
 // is mtpLen long, then sin(a) = -h/mtpLen  (negative = pointing downward).
 //
 //   CONTACT / FLAT STANCE  (ankle at GY, onGround):
 //     a = max(0, rawA)  — heel-down on strike, flat at mid-stance. Never negative
-//     so the foot can’t point underground from a ground-level ankle.
+//     so the foot can't point underground from a ground-level ankle.
 //
 //   HEEL-RISE  (ankle above GY, onGround):
 //     a = geometry angle  — ball stays exactly on GY while heel lifts. ✓
@@ -84,7 +84,7 @@ ty = Math.min(by - toeLen * sa, GY);
 }
 
 ctx.save();
-ctx.strokeStyle=stroke; ctx.lineWidth=lw*1.15; ctx.lineCap=‘round’; ctx.lineJoin=‘round’; ctx.globalAlpha=am;
+ctx.strokeStyle=stroke; ctx.lineWidth=lw*1.15; ctx.lineCap='round'; ctx.lineJoin='round'; ctx.globalAlpha=am;
 ctx.beginPath(); ctx.moveTo(fx,fy); ctx.lineTo(bx,by); ctx.lineTo(tx,ty); ctx.stroke();
 ctx.restore();
 }
@@ -125,7 +125,7 @@ return sz * 0.45 * frac;
 }
 
 // The root cause of foot sliding: sin(phase)*stepLength moves the foot continuously
-// even when it’s supposed to be on the ground. This function fixes that.
+// even when it's supposed to be on the ground. This function fixes that.
 //
 // Walk cycle phases (normalised t = phase / TAU):
 //   t = 0.25 → heel strike (front foot fully forward)
@@ -195,7 +195,7 @@ function drawFigure(ctx, pose, p, col, dir, phase, am=1) {
 const {hipX,hipY,sX,sY,hdX,hdY,fAn,bAn,fK,bK,fE,fH,bE,bH} = pose;
 const {footSize:fs,heelToe:ht,legLen:ll,stepLength:sl,lineWidth:lw,headSize:hs} = p;
 ctx.save(); ctx.strokeStyle=col.stroke; ctx.fillStyle=col.fill;
-ctx.lineWidth=lw; ctx.lineCap=‘round’; ctx.lineJoin=‘round’;
+ctx.lineWidth=lw; ctx.lineCap='round'; ctx.lineJoin='round';
 ctx.globalAlpha=0.38*am;
 ctx.beginPath(); ctx.moveTo(hipX,hipY); ctx.lineTo(bK.x,bK.y); ctx.lineTo(bAn.x,bAn.y); ctx.stroke();
 if(fs>0) drawFoot(ctx,bAn.x,bAn.y,phase+Math.PI,fs,dir,lw,0.38*am,col.stroke,ll,sl,ht);
@@ -216,32 +216,32 @@ ctx.restore();
 // ── Colour palettes ───────────────────────────────────────────────────────────
 // Figure colors: ink and pencil tones designed for a light paper background
 const FIG_COLORS = [
-{name:‘Ink’,    stroke:’#2A2318’,fill:‘rgba(42,35,24,0.06)’},
-{name:‘Pencil’, stroke:’#5A5048’,fill:‘rgba(90,80,72,0.06)’},
-{name:‘Blue’,   stroke:’#3A6090’,fill:‘rgba(58,96,144,0.06)’},
-{name:‘Red’,    stroke:’#B84040’,fill:‘rgba(184,64,64,0.06)’},
-{name:‘Sienna’, stroke:’#8B5030’,fill:‘rgba(139,80,48,0.06)’},
-{name:‘Forest’, stroke:’#3D6B40’,fill:‘rgba(61,107,64,0.06)’},
+{name:'Ink',    stroke:'#2A2318',fill:'rgba(42,35,24,0.06)'},
+{name:'Pencil', stroke:'#5A5048',fill:'rgba(90,80,72,0.06)'},
+{name:'Blue',   stroke:'#3A6090',fill:'rgba(58,96,144,0.06)'},
+{name:'Red',    stroke:'#B84040',fill:'rgba(184,64,64,0.06)'},
+{name:'Sienna', stroke:'#8B5030',fill:'rgba(139,80,48,0.06)'},
+{name:'Forest', stroke:'#3D6B40',fill:'rgba(61,107,64,0.06)'},
 ];
 // BG colors: paper and animation-desk tones. light:true = use dark ink overlay text.
 const BG_COLORS = [
-{name:‘Paper’,     bg:’#F4EFE4’,light:true},
-{name:‘Cel’,       bg:’#F8F6F0’,light:true},
-{name:‘Aged’,      bg:’#EDE5C8’,light:true},
-{name:‘Blueprint’, bg:’#D4DFE8’,light:true},
-{name:‘Dark’,      bg:’#1A1815’,light:false},
+{name:'Paper',     bg:'#F4EFE4',light:true},
+{name:'Cel',       bg:'#F8F6F0',light:true},
+{name:'Aged',      bg:'#EDE5C8',light:true},
+{name:'Blueprint', bg:'#D4DFE8',light:true},
+{name:'Dark',      bg:'#1A1815',light:false},
 ];
 const KEY_POSES = [
-{key:‘contact’,label:‘Contact’,phase:TAU*0.25,color:’#3B82F6’,fill:‘rgba(59,130,246,0.08)’},
-{key:‘down’,   label:‘Down’,   phase:TAU*0.42,color:’#D97706’,fill:‘rgba(217,119,6,0.08)’},
-{key:‘passing’,label:‘Passing’,phase:TAU*0.5, color:’#059669’,fill:‘rgba(5,150,105,0.08)’},
-{key:‘up’,     label:‘Up’,     phase:TAU*0.75,color:’#DC2626’,fill:‘rgba(220,38,38,0.08)’},
+{key:'contact',label:'Contact',phase:TAU*0.25,color:'#3B82F6',fill:'rgba(59,130,246,0.08)'},
+{key:'down',   label:'Down',   phase:TAU*0.42,color:'#D97706',fill:'rgba(217,119,6,0.08)'},
+{key:'passing',label:'Passing',phase:TAU*0.5, color:'#059669',fill:'rgba(5,150,105,0.08)'},
+{key:'up',     label:'Up',     phase:TAU*0.75,color:'#DC2626',fill:'rgba(220,38,38,0.08)'},
 ];
 
 // ── Full frame render ─────────────────────────────────────────────────────────
 function renderFrame(canvas, rawPhase, cx, p, st, opts={}) {
 const {forExport=false,transparent=false,keyPoseState=null,onion=null,tickOffset=0} = opts;
-const ctx = canvas.getContext(‘2d’);
+const ctx = canvas.getContext('2d');
 const col = FIG_COLORS[st.figureIdx], bg = BG_COLORS[st.bgIdx];
 const dir = st.flipDir ? -1 : 1, light = bg.light !== false;
 const N = cycLen(p.fps, p.speed), snapStep = TAU/N*p.animOn;
@@ -253,19 +253,19 @@ ctx.clearRect(0,0,W,H);
 if(!transparent){ctx.fillStyle=bg.bg; ctx.fillRect(0,0,W,H);}
 
 if(st.showGrid&&!forExport){
-ctx.strokeStyle=light?‘rgba(0,0,0,0.07)’:‘rgba(255,255,255,0.07)’; ctx.lineWidth=1;
+ctx.strokeStyle=light?'rgba(0,0,0,0.07)':'rgba(255,255,255,0.07)'; ctx.lineWidth=1;
 for(let x=0;x<=W;x+=20){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();}
 for(let y=0;y<=H;y+=20){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}
-ctx.strokeStyle=light?‘rgba(0,0,0,0.15)’:‘rgba(255,255,255,0.15)’; ctx.setLineDash([4,4]);
+ctx.strokeStyle=light?'rgba(0,0,0,0.15)':'rgba(255,255,255,0.15)'; ctx.setLineDash([4,4]);
 ctx.beginPath();ctx.moveTo(cx,0);ctx.lineTo(cx,H);ctx.stroke();
 ctx.beginPath();ctx.moveTo(0,GY);ctx.lineTo(W,GY);ctx.stroke();
 ctx.setLineDash([]);
 }
-ctx.globalAlpha=1; ctx.strokeStyle=light?‘rgba(0,0,0,0.28)’:‘rgba(255,255,255,0.2)’; ctx.lineWidth=1.5;
+ctx.globalAlpha=1; ctx.strokeStyle=light?'rgba(0,0,0,0.28)':'rgba(255,255,255,0.2)'; ctx.lineWidth=1.5;
 ctx.beginPath();ctx.moveTo(0,GY);ctx.lineTo(W,GY);ctx.stroke();
 if(!forExport){
-const sp=Math.max(6,p.stepLength*2); ctx.strokeStyle=light?‘rgba(0,0,0,0.22)’:‘rgba(255,255,255,0.18)’; ctx.lineWidth=1.5;
-if(st.loco===‘walk’){
+const sp=Math.max(6,p.stepLength*2); ctx.strokeStyle=light?'rgba(0,0,0,0.22)':'rgba(255,255,255,0.18)'; ctx.lineWidth=1.5;
+if(st.loco==='walk'){
 for(let x=sp*0.5;x<W+sp;x+=sp){ctx.beginPath();ctx.moveTo(x,GY);ctx.lineTo(x,GY+8);ctx.stroke();}
 } else {
 const off=((tickOffset%sp)+sp)%sp;
@@ -279,28 +279,28 @@ ctx.beginPath();ctx.ellipse(cx,GY+4,sw,5,0,0,TAU);ctx.fill();ctx.restore();
 }
 if(st.footDots&&!forExport){
 ctx.save();
-[[phase,‘rgba(96,165,250,0.8)’],[phase+Math.PI,‘rgba(248,113,113,0.8)’]].forEach(([lp,c])=>{
+[[phase,'rgba(96,165,250,0.8)'],[phase+Math.PI,'rgba(248,113,113,0.8)']].forEach(([lp,c])=>{
 const lift=Math.max(0,Math.cos(lp))*p.kneeLift;
 if(lift<4){ctx.globalAlpha=(1-lift/4)*0.9;ctx.fillStyle=c;ctx.beginPath();ctx.arc(cx+Math.sin(lp)*p.stepLength*dir,GY,4,0,TAU);ctx.fill();}
 });
 ctx.restore();
 }
 if(onion?.on&&!forExport){
-for(let i=onion.count;i>=1;i–){
+for(let i=onion.count;i>=1;i--){
 const pN2=((snappedRaw-i*snapStep)%TAU+TAU)%TAU/TAU;
 const oPh=applyFeel(pN2,p.feel)*TAU;
-drawFigure(ctx,computePose(oPh,cx,p,dir),p,{stroke:’#60A5FA’,fill:‘rgba(96,165,250,0.04)’},dir,oPh,0.22*(onion.count-i+1)/onion.count);
+drawFigure(ctx,computePose(oPh,cx,p,dir),p,{stroke:'#60A5FA',fill:'rgba(96,165,250,0.04)'},dir,oPh,0.22*(onion.count-i+1)/onion.count);
 }
 for(let i=1;i<=onion.count;i++){
 const pN2=((snappedRaw+i*snapStep)%TAU+TAU)%TAU/TAU;
 const oPh=applyFeel(pN2,p.feel)*TAU;
-drawFigure(ctx,computePose(oPh,cx,p,dir),p,{stroke:’#F59E0B’,fill:‘rgba(245,158,11,0.04)’},dir,oPh,0.22*(onion.count-i+1)/onion.count);
+drawFigure(ctx,computePose(oPh,cx,p,dir),p,{stroke:'#F59E0B',fill:'rgba(245,158,11,0.04)'},dir,oPh,0.22*(onion.count-i+1)/onion.count);
 }
 }
 if(keyPoseState&&!forExport)
 KEY_POSES.forEach(kp=>{if(keyPoseState[kp.key]) drawFigure(ctx,computePose(kp.phase,cx,p,dir),p,{stroke:kp.color,fill:kp.fill},dir,kp.phase,0.45);});
 const gc=forExport?0:(p.ghostTrail|0);
-for(let g=gc;g>=1;g–){
+for(let g=gc;g>=1;g--){
 const pN2=((snappedRaw-g*0.28)%TAU+TAU)%TAU/TAU;
 const gPh=applyFeel(pN2,p.feel)*TAU;
 drawFigure(ctx,computePose(gPh,cx,p,dir),p,col,dir,gPh,0.28*(gc-g+1)/gc);
@@ -312,26 +312,26 @@ const frameN=Math.min(Math.floor(norm/TAU*N)+1,N);
 const totalDrw=Math.ceil(N/p.animOn), drwN=Math.min(Math.ceil(frameN/p.animOn),totalDrw);
 const l1=p.animOn===1?`Fr ${frameN} / ${N}`:`Fr ${frameN} / ${N}  (Drw ${drwN} / ${totalDrw})`;
 const l2=`${N} fr · ${(N/p.fps).toFixed(2)}s @ ${p.fps}fps`;
-ctx.save(); ctx.font=‘bold 10px Courier New’; const tw1=ctx.measureText(l1).width;
-ctx.font=‘9px Courier New’; const tw2=ctx.measureText(l2).width;
+ctx.save(); ctx.font='bold 10px Courier New'; const tw1=ctx.measureText(l1).width;
+ctx.font='9px Courier New'; const tw2=ctx.measureText(l2).width;
 const bw=Math.max(tw1,tw2)+16,bh=32,bx=W-bw-6,by=6;
-ctx.fillStyle=light?‘rgba(244,239,228,0.94)’:‘rgba(18,16,14,0.88)’;
+ctx.fillStyle=light?'rgba(244,239,228,0.94)':'rgba(18,16,14,0.88)';
 ctx.beginPath();ctx.roundRect(bx,by,bw,bh,3);ctx.fill();
-ctx.fillStyle=light?’#2A2318’:’#E8DCC8’; ctx.textAlign=‘left’; ctx.textBaseline=‘top’;
-ctx.font=‘bold 10px Courier New’; ctx.fillText(l1,bx+8,by+5);
-ctx.fillStyle=light?’#6B5E4A’:’#8A7C6A’; ctx.font=‘9px Courier New’; ctx.fillText(l2,bx+8,by+19);
+ctx.fillStyle=light?'#2A2318':'#E8DCC8'; ctx.textAlign='left'; ctx.textBaseline='top';
+ctx.font='bold 10px Courier New'; ctx.fillText(l1,bx+8,by+5);
+ctx.fillStyle=light?'#6B5E4A':'#8A7C6A'; ctx.font='9px Courier New'; ctx.fillText(l2,bx+8,by+19);
 ctx.restore();
 }
 }
 
 // ── Timing / spacing chart ────────────────────────────────────────────────────
-// Shows how frames are distributed across each body part’s motion path.
+// Shows how frames are distributed across each body part's motion path.
 // Dense dots = moving slowly (dwelling at that pose).
 // Sparse dots = moving quickly through.
 // Filled dot = drawing frame; hollow = held frame (on 2s).
 function drawTimingChart(canvas, p) {
-const ctx=canvas.getContext(‘2d’); const cw=canvas.width,ch=canvas.height;
-ctx.clearRect(0,0,cw,ch); ctx.fillStyle=’#EAE4D4’; ctx.fillRect(0,0,cw,ch);
+const ctx=canvas.getContext('2d'); const cw=canvas.width,ch=canvas.height;
+ctx.clearRect(0,0,cw,ch); ctx.fillStyle='#EAE4D4'; ctx.fillRect(0,0,cw,ch);
 const N=cycLen(p.fps,p.speed);
 const laneH=22,gap=5,padX=34,padY=4,padR=8,chartW=cw-padX-padR;
 const bodyVals=[],footVals=[],armVals=[];
@@ -342,69 +342,69 @@ bodyVals.push(p.legLen*(1-Math.sqrt(1-k*k))*(1+p.bounce*0.10));
 footVals.push(Math.max(0,Math.cos(ph))*p.kneeLift);
 armVals.push(Math.sin(ph+Math.PI)*Math.asin(Math.min(p.armSwing/Math.max(p.armLen,1),0.95)));
 }
-const norm=arr=>{const mn=Math.min(…arr),mx=Math.max(…arr);return arr.map(v=>mx===mn?0.5:(v-mn)/(mx-mn));};
+const norm=arr=>{const mn=Math.min(...arr),mx=Math.max(...arr);return arr.map(v=>mx===mn?0.5:(v-mn)/(mx-mn));};
 const lanes=[
-{label:‘Body’,data:norm(bodyVals),invert:true, color:’#4A6FA5’},
-{label:‘Foot’,data:norm(footVals),invert:false,color:’#3D8B6A’},
-{label:‘Arm’, data:norm(armVals), invert:false,color:’#C07830’},
+{label:'Body',data:norm(bodyVals),invert:true, color:'#4A6FA5'},
+{label:'Foot',data:norm(footVals),invert:false,color:'#3D8B6A'},
+{label:'Arm', data:norm(armVals), invert:false,color:'#C07830'},
 ];
 lanes.forEach(({label,data,invert,color},li)=>{
 const baseY=padY+li*(laneH+gap),trackY=baseY+10,trackH=laneH-10;
-ctx.fillStyle=’#6B5E4A’; ctx.font=‘8px Courier New’; ctx.textAlign=‘right’;
+ctx.fillStyle='#6B5E4A'; ctx.font='8px Courier New'; ctx.textAlign='right';
 ctx.fillText(label,padX-5,trackY+trackH/2+3);
-ctx.fillStyle=’#D8D0BC’; ctx.fillRect(padX,trackY,chartW,trackH);
+ctx.fillStyle='#D8D0BC'; ctx.fillRect(padX,trackY,chartW,trackH);
 ctx.beginPath();
 for(let i=0;i<N;i++){
 const x=padX+(i+0.5)/N*chartW, n=invert?1-data[i]:data[i], y=trackY+2+(1-n)*(trackH-4);
 i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
 }
-ctx.strokeStyle=color+‘50’; ctx.lineWidth=1; ctx.stroke();
+ctx.strokeStyle=color+'50'; ctx.lineWidth=1; ctx.stroke();
 for(let i=0;i<N;i++){
 const x=padX+(i+0.5)/N*chartW, n=invert?1-data[i]:data[i], y=trackY+2+(1-n)*(trackH-4);
 const isDrw=i%p.animOn===0;
 ctx.beginPath(); ctx.arc(x,y,isDrw?2.5:1.5,0,TAU);
 if(isDrw){ctx.fillStyle=color;ctx.fill();}
-else{ctx.strokeStyle=color+‘70’;ctx.lineWidth=0.8;ctx.stroke();}
+else{ctx.strokeStyle=color+'70';ctx.lineWidth=0.8;ctx.stroke();}
 }
 });
 const axY=padY+lanes.length*(laneH+gap)+4;
-ctx.fillStyle=’#9A8C7C’; ctx.font=‘7px Courier New’; ctx.textAlign=‘center’;
+ctx.fillStyle='#9A8C7C'; ctx.font='7px Courier New'; ctx.textAlign='center';
 [0,Math.round(N/4),Math.round(N/2),Math.round(3*N/4),N-1].forEach(i=>{
 ctx.fillText(i+1,padX+(i+0.5)/N*chartW,axY+8);
 });
 if(p.animOn>1){
-ctx.fillStyle=’#9A8C7C’; ctx.font=‘7px Courier New’; ctx.textAlign=‘right’;
-ctx.fillText(‘● drawing  ○ held’,cw-4,ch-2);
+ctx.fillStyle='#9A8C7C'; ctx.font='7px Courier New'; ctx.textAlign='right';
+ctx.fillText('● drawing  ○ held',cw-4,ch-2);
 }
 }
 
 // ── Slider definitions per tab ────────────────────────────────────────────────
 const TAB_SLIDERS = {
 body:[
-{key:‘legLen’,   label:‘Leg Length’,  min:35,  max:110,step:1,   unit:‘px’},
-{key:‘armLen’,   label:‘Arm Length’,  min:20,  max:80, step:1,   unit:‘px’},
-{key:‘torsoLen’, label:‘Torso’,       min:20,  max:80, step:1,   unit:‘px’},
-{key:‘headSize’, label:‘Head Size’,   min:8,   max:30, step:1,   unit:‘px’},
-{key:‘footSize’, label:‘Foot Size’,   min:0,   max:22, step:1,   unit:‘px’},
-{key:‘lineWidth’,label:‘Line Weight’, min:1,   max:8,  step:0.5, unit:‘px’},
-{key:‘legBend’,  label:‘Leg Bend’,    min:-15, max:28, step:1,   unit:‘px’},
-{key:‘armBend’,  label:‘Arm Bend’,    min:0,   max:60, step:1,   unit:‘°’},
+{key:'legLen',   label:'Leg Length',  min:35,  max:110,step:1,   unit:'px'},
+{key:'armLen',   label:'Arm Length',  min:20,  max:80, step:1,   unit:'px'},
+{key:'torsoLen', label:'Torso',       min:20,  max:80, step:1,   unit:'px'},
+{key:'headSize', label:'Head Size',   min:8,   max:30, step:1,   unit:'px'},
+{key:'footSize', label:'Foot Size',   min:0,   max:22, step:1,   unit:'px'},
+{key:'lineWidth',label:'Line Weight', min:1,   max:8,  step:0.5, unit:'px'},
+{key:'legBend',  label:'Leg Bend',    min:-15, max:28, step:1,   unit:'px'},
+{key:'armBend',  label:'Arm Bend',    min:0,   max:60, step:1,   unit:'°'},
 ],
 walk:[
-{key:‘speed’,     label:‘Speed’,       min:0.2,max:3,  step:0.05,unit:‘×’},
-{key:‘stepLength’,label:‘Step Length’, min:5,  max:55, step:1,   unit:‘px’},
-{key:‘kneeLift’,  label:‘Knee Lift’,   min:0,  max:35, step:1,   unit:‘px’},
-{key:‘bounce’,    label:‘Bounce’,      min:0,  max:20, step:0.5, unit:’’},
-{key:‘armSwing’,  label:‘Arm Swing’,   min:0,  max:50, step:1,   unit:‘px’},
-{key:‘heelToe’,   label:‘Heel/Toe’,    min:-1, max:1,  step:0.05,unit:’’},
+{key:'speed',     label:'Speed',       min:0.2,max:3,  step:0.05,unit:'×'},
+{key:'stepLength',label:'Step Length', min:5,  max:55, step:1,   unit:'px'},
+{key:'kneeLift',  label:'Knee Lift',   min:0,  max:35, step:1,   unit:'px'},
+{key:'bounce',    label:'Bounce',      min:0,  max:20, step:0.5, unit:''},
+{key:'armSwing',  label:'Arm Swing',   min:0,  max:50, step:1,   unit:'px'},
+{key:'heelToe',   label:'Heel/Toe',    min:-1, max:1,  step:0.05,unit:''},
 ],
 style:[
-{key:‘leanAngle’,    label:‘Lean’,          min:-25,max:25, step:1,  unit:‘°’},
-{key:‘bodyTilt’,     label:‘Body Tilt’,      min:0,  max:22, step:0.5,unit:‘°’},
-{key:‘hipSway’,      label:‘Hip Sway’,       min:0,  max:14, step:0.5,unit:‘px’},
-{key:‘headBob’,      label:‘Head Bob’,       min:0,  max:14, step:0.5,unit:‘px’},
-{key:‘headPendulum’, label:‘Head Swing’,     min:0,  max:18, step:0.5,unit:‘px’},
-{key:‘ghostTrail’,   label:‘Ghost Trail’,    min:0,  max:6,  step:1,  unit:’’},
+{key:'leanAngle',    label:'Lean',          min:-25,max:25, step:1,  unit:'°'},
+{key:'bodyTilt',     label:'Body Tilt',      min:0,  max:22, step:0.5,unit:'°'},
+{key:'hipSway',      label:'Hip Sway',       min:0,  max:14, step:0.5,unit:'px'},
+{key:'headBob',      label:'Head Bob',       min:0,  max:14, step:0.5,unit:'px'},
+{key:'headPendulum', label:'Head Swing',     min:0,  max:18, step:0.5,unit:'px'},
+{key:'ghostTrail',   label:'Ghost Trail',    min:0,  max:6,  step:1,  unit:''},
 ],
 };
 
@@ -426,7 +426,7 @@ speed:1,stepLength:24,kneeLift:14,bounce:6,armSwing:20,heelToe:0.8,
 leanAngle:0,bodyTilt:0,hipSway:0,headBob:2,headPendulum:2,ghostTrail:0,
 fps:24,animOn:1,feel:0.5,
 };
-const DEF_STYLE = {figureIdx:0,bgIdx:0,showGrid:false,showShadow:false,footDots:false,flipDir:false,loco:‘place’};
+const DEF_STYLE = {figureIdx:0,bgIdx:0,showGrid:false,showShadow:false,footDots:false,flipDir:false,loco:'place'};
 // figureIdx:0 = Ink (dark, readable on paper)   bgIdx:0 = Paper (warm cream)
 
 // ── Storage helpers ───────────────────────────────────────────────────────────
@@ -440,38 +440,38 @@ async list(pfx){try{return await window.storage.list(pfx);}catch{return {keys:[]
 // ── Preset thumbnail ──────────────────────────────────────────────────────────
 function makeThumbnail(params, style) {
 try {
-const off = document.createElement(‘canvas’); off.width=W; off.height=H;
+const off = document.createElement('canvas'); off.width=W; off.height=H;
 renderFrame(off, TAU*0.5, W/2, params, style, {forExport:true});
-const th = document.createElement(‘canvas’); th.width=120; th.height=80;
-th.getContext(‘2d’).drawImage(off,0,0,120,80);
-return th.toDataURL(‘image/jpeg’,0.75);
+const th = document.createElement('canvas'); th.width=120; th.height=80;
+th.getContext('2d').drawImage(off,0,0,120,80);
+return th.toDataURL('image/jpeg',0.75);
 } catch{return null;}
 }
 
 // ── Theme tokens ──────────────────────────────────────────────────────────────
 const T = {
-paper:   ‘#F4EFE4’, paperDk:’#E8E2D2’, paperLt:’#FAF8F3’,
-border:  ‘#C8B99A’, borderLt:’#DDD5C0’,
-ink:     ‘#2A2318’, ink2:’#6B5E4A’, ink3:’#9A8C7C’, ink4:’#BFB4A4’,
-blue:    ‘#4A6FA5’, // blue pencil – active states
-red:     ‘#B84040’, // red pencil – delete/danger
-amber:   ‘#C07830’, // warm amber – secondary accent
+paper:   '#F4EFE4', paperDk:'#E8E2D2', paperLt:'#FAF8F3',
+border:  '#C8B99A', borderLt:'#DDD5C0',
+ink:     '#2A2318', ink2:'#6B5E4A', ink3:'#9A8C7C', ink4:'#BFB4A4',
+blue:    '#4A6FA5', // blue pencil -- active states
+red:     '#B84040', // red pencil -- delete/danger
+amber:   '#C07830', // warm amber -- secondary accent
 };
 
 // ── Shared UI helpers ─────────────────────────────────────────────────────────
 function SliderGrid({sliders, params, onChange}) {
 return (
-<div style={{display:‘grid’,gridTemplateColumns:‘1fr 1fr’,gap:‘10px 24px’}}>
+<div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px 24px'}}>
 {sliders.map(s=>(
-<div key={s.key} style={{display:‘flex’,flexDirection:‘column’,gap:2}}>
-<div style={{display:‘flex’,justifyContent:‘space-between’,fontSize:10,
-letterSpacing:‘0.07em’,color:T.ink2}}>
-<span style={{textTransform:‘uppercase’}}>{s.label}</span>
+<div key={s.key} style={{display:'flex',flexDirection:'column',gap:2}}>
+<div style={{display:'flex',justifyContent:'space-between',fontSize:10,
+letterSpacing:'0.07em',color:T.ink2}}>
+<span style={{textTransform:'uppercase'}}>{s.label}</span>
 <span style={{color:T.ink3}}>{params[s.key]}{s.unit}</span>
 </div>
-<input type=“range” min={s.min} max={s.max} step={s.step} value={params[s.key]}
+<input type="range" min={s.min} max={s.max} step={s.step} value={params[s.key]}
 onChange={e=>onChange(s.key,+e.target.value)}
-style={{accentColor:T.blue,cursor:‘pointer’}}/>
+style={{accentColor:T.blue,cursor:'pointer'}}/>
 </div>
 ))}
 </div>
@@ -494,8 +494,8 @@ const scrubDrag   = useRef(false);
 
 const [params,      setParams]      = useState(DEF_PARAMS);
 const [style,       setStyle]       = useState(DEF_STYLE);
-const [tab,         setTab]         = useState(‘walk’);
-const [playback,    setPlayback]    = useState(‘forward’);
+const [tab,         setTab]         = useState('walk');
+const [playback,    setPlayback]    = useState('forward');
 const [keyPoses,    setKeyPoses]    = useState({contact:false,down:false,passing:false,up:false});
 const [onionOn,     setOnionOn]     = useState(false);
 const [onionCount,  setOnionCount]  = useState(2);
@@ -505,17 +505,17 @@ const [expRes,      setExpRes]      = useState(1);
 const [expTrans,    setExpTrans]    = useState(false);
 const [userPresets, setUserPresets] = useState([]);
 const [savingPre,   setSavingPre]   = useState(false);
-const [saveName,    setSaveName]    = useState(’’);
+const [saveName,    setSaveName]    = useState('');
 
 live.current = {params,style,playback,keyPoses,onionOn,onionCount};
-const setP  = (key,val) => setParams(p=>({…p,[key]:val}));
-const setSt = (key,val) => setStyle(s=>({…s,[key]:val}));
+const setP  = (key,val) => setParams(p=>({...p,[key]:val}));
+const setSt = (key,val) => setStyle(s=>({...s,[key]:val}));
 
 // Load saved presets
 useEffect(()=>{
 (async()=>{
 try{
-const keys=await store.list(‘wcs:preset:’);
+const keys=await store.list('wcs:preset:');
 const loaded=[];
 for(const k of (keys?.keys||[])){const r=await store.get(k);if(r?.value) loaded.push(JSON.parse(r.value));}
 setUserPresets(loaded.sort((a,b)=>a.createdAt-b.createdAt));
@@ -531,17 +531,17 @@ if(!lastTRef.current) lastTRef.current=ts;
 const dt=Math.min((ts-lastTRef.current)/1000,0.05); lastTRef.current=ts;
 const {params:p,style:st,playback:pb,keyPoses:kp,onionOn:oo,onionCount:oc}=live.current;
 const rate=p.speed*2.5, dir=st.flipDir?-1:1;
-if(pb===‘forward’||pb===‘backward’){
-const sign=pb===‘forward’?1:-1;
+if(pb==='forward'||pb==='backward'){
+const sign=pb==='forward'?1:-1;
 phaseRef.current+=sign*dt*rate;
 const pps=(p.stepLength*2*rate)/Math.PI;
-if(st.loco===‘walk’){
+if(st.loco==='walk'){
 walkXRef.current+=sign*dt*pps*dir;
 if(walkXRef.current>W+90) walkXRef.current=-90;
 if(walkXRef.current<-90)  walkXRef.current=W+90;
 } else { walkXRef.current=W/2; tickRef.current-=sign*dt*pps*dir; }
-} else if(st.loco!==‘walk’) walkXRef.current=W/2;
-const cx=st.loco===‘walk’?walkXRef.current:W/2;
+} else if(st.loco!=='walk') walkXRef.current=W/2;
+const cx=st.loco==='walk'?walkXRef.current:W/2;
 renderFrame(canvas,phaseRef.current,cx,p,st,{keyPoseState:kp,onion:{on:oo,count:oc},tickOffset:tickRef.current});
 const N=cycLen(p.fps,p.speed),snap=TAU/N*p.animOn;
 const frac=((Math.round(phaseRef.current/snap)*snap%TAU)+TAU)%TAU/TAU;
@@ -554,28 +554,28 @@ return ()=>cancelAnimationFrame(animRef.current);
 
 // Timing chart
 useEffect(()=>{
-if(tab===‘timing’&&chartRef.current) drawTimingChart(chartRef.current,params);
+if(tab==='timing'&&chartRef.current) drawTimingChart(chartRef.current,params);
 },[tab,params.fps,params.animOn,params.feel,params.speed,params.stepLength,
 params.legLen,params.kneeLift,params.armSwing,params.bounce]);
 
 // Scrubber
 const getSF=e=>{const r=scrubBarRef.current.getBoundingClientRect();return Math.max(0,Math.min(1,(e.clientX-r.left)/r.width));};
-const onSD=e=>{scrubDrag.current=true;phaseRef.current=getSF(e)*TAU;setPlayback(‘paused’);};
+const onSD=e=>{scrubDrag.current=true;phaseRef.current=getSF(e)*TAU;setPlayback('paused');};
 const onSM=e=>{if(scrubDrag.current) phaseRef.current=getSF(e)*TAU;};
 const onSU=()=>{scrubDrag.current=false;};
 
-const stepFwd=()=>{const N=cycLen(live.current.params.fps,live.current.params.speed);setPlayback(‘paused’);phaseRef.current+=TAU/N*live.current.params.animOn;};
-const stepBwd=()=>{const N=cycLen(live.current.params.fps,live.current.params.speed);setPlayback(‘paused’);phaseRef.current-=TAU/N*live.current.params.animOn;};
+const stepFwd=()=>{const N=cycLen(live.current.params.fps,live.current.params.speed);setPlayback('paused');phaseRef.current+=TAU/N*live.current.params.animOn;};
+const stepBwd=()=>{const N=cycLen(live.current.params.fps,live.current.params.speed);setPlayback('paused');phaseRef.current-=TAU/N*live.current.params.animOn;};
 
 // Presets
-const applyPreset=pre=>setParams(p=>({…p,…pre,fps:p.fps,animOn:p.animOn}));
+const applyPreset=pre=>setParams(p=>({...p,...pre,fps:p.fps,animOn:p.animOn}));
 const handleSavePre=async()=>{
 if(!saveName.trim()) return;
 const id=`${Date.now()}`;
 const thumbnail=makeThumbnail(live.current.params,live.current.style);
-const preset={id,name:saveName.trim(),createdAt:Date.now(),params:{…live.current.params},thumbnail};
+const preset={id,name:saveName.trim(),createdAt:Date.now(),params:{...live.current.params},thumbnail};
 await store.set(`wcs:preset:${id}`,JSON.stringify(preset));
-setUserPresets(v=>[…v,preset]); setSaveName(’’); setSavingPre(false);
+setUserPresets(v=>[...v,preset]); setSaveName(''); setSavingPre(false);
 };
 const handleDelPre=async id=>{await store.del(`wcs:preset:${id}`);setUserPresets(v=>v.filter(p=>p.id!==id));};
 
@@ -584,25 +584,25 @@ const doExport=async mode=>{
 setExporting(true);
 const {params:p,style:st}=live.current;
 const N=cycLen(p.fps,p.speed),dc=Math.ceil(N/p.animOn),res=expRes;
-const off=document.createElement(‘canvas’);off.width=W*res;off.height=H*res;
-const oc=off.getContext(‘2d’);
-if(mode===‘spritesheet’){
-const sh=document.createElement(‘canvas’);sh.width=W*res*dc;sh.height=H*res;
-const sc=sh.getContext(‘2d’);
+const off=document.createElement('canvas');off.width=W*res;off.height=H*res;
+const oc=off.getContext('2d');
+if(mode==='spritesheet'){
+const sh=document.createElement('canvas');sh.width=W*res*dc;sh.height=H*res;
+const sc=sh.getContext('2d');
 for(let d=0;d<dc;d++){
 const rp=d*p.animOn*TAU/N; oc.save();if(res>1)oc.scale(res,res);
 renderFrame(off,rp,W/2,p,st,{forExport:true,transparent:expTrans});
 oc.restore();sc.drawImage(off,d*W*res,0);
 setExpPct(Math.round((d+1)/dc*100));await new Promise(r=>setTimeout(r,15));
 }
-const a=document.createElement(‘a’);a.href=sh.toDataURL(‘image/png’);
+const a=document.createElement('a');a.href=sh.toDataURL('image/png');
 a.download=`walk_spritesheet_${dc}drw.png`;a.click();
 } else {
 for(let d=0;d<dc;d++){
 const rp=d*p.animOn*TAU/N; oc.save();if(res>1)oc.scale(res,res);
 renderFrame(off,rp,W/2,p,st,{forExport:true,transparent:expTrans});
 oc.restore();
-const a=document.createElement(‘a’);a.href=off.toDataURL(‘image/png’);
+const a=document.createElement('a');a.href=off.toDataURL('image/png');
 a.download=`walk_${p.animOn>1?'drw':'fr'}_${String(d+1).padStart(3,'0')}.png`;a.click();
 setExpPct(Math.round((d+1)/dc*100));await new Promise(r=>setTimeout(r,90));
 }
@@ -612,34 +612,33 @@ setExporting(false);setExpPct(0);
 
 // ── Style helpers (paper & ink theme) ───────────────────────────────────────
 const tgl=(on,danger=false)=>({
-background:on?(danger?‘rgba(184,64,64,0.10)’:‘rgba(74,111,165,0.12)’):‘transparent’,
+background:on?(danger?'rgba(184,64,64,0.10)':'rgba(74,111,165,0.12)'):'transparent',
 border:`1px solid ${on?(danger?T.red:T.blue):T.border}`,
 color:on?(danger?T.red:T.blue):T.ink2,
-borderRadius:3,padding:‘3px 8px’,cursor:‘pointer’,
-fontSize:9,letterSpacing:‘0.1em’,fontFamily:‘inherit’,textTransform:‘uppercase’,transition:‘all 0.12s’,
+borderRadius:3,padding:'3px 8px',cursor:'pointer',
+fontSize:9,letterSpacing:'0.1em',fontFamily:'inherit',textTransform:'uppercase',transition:'all 0.12s',
 });
-const chip=on=>({…tgl(on),padding:‘5px 14px’,fontSize:10});
-const tabBody={padding:‘14px 16px’,display:‘flex’,flexDirection:‘column’,gap:16,overflowY:‘auto’,maxHeight:248,background:T.paperLt};
-const sec={display:‘flex’,flexDirection:‘column’,gap:8};
-const secLbl={fontSize:9,letterSpacing:‘0.18em’,color:T.ink3,textTransform:‘uppercase’};
-const divider={width:‘100%’,height:1,background:T.borderLt,margin:‘2px 0’};
+const chip=on=>({...tgl(on),padding:'5px 14px',fontSize:10});
+const tabBody={padding:'14px 16px',display:'flex',flexDirection:'column',gap:16,overflowY:'auto',maxHeight:248,background:T.paperLt};
+const sec={display:'flex',flexDirection:'column',gap:8};
+const secLbl={fontSize:9,letterSpacing:'0.18em',color:T.ink3,textTransform:'uppercase'};
+const divider={width:'100%',height:1,background:T.borderLt,margin:'2px 0'};
 
 const N=cycLen(params.fps,params.speed), dc=Math.ceil(N/params.animOn);
 const TABS=[
-{key:‘body’,  icon:‘⊙’,label:‘Body’},
-{key:‘walk’,  icon:‘≋’,label:‘Walk’},
-{key:‘style’, icon:‘✦’,label:‘Style’},
-{key:‘timing’,icon:‘◷’,label:‘Timing’},
-{key:‘presets’,icon:‘⊟’,label:‘Presets’},
+{key:'body',  icon:'⊙',label:'Body'},
+{key:'walk',  icon:'≋',label:'Walk'},
+{key:'style', icon:'✦',label:'Style'},
+{key:'timing',icon:'◷',label:'Timing'},
+{key:'presets',icon:'⊟',label:'Presets'},
 ];
 
 return (
-<div style={{fontFamily:”‘Courier New’,monospace”,background:T.paper,color:T.ink,
-display:‘flex’,flexDirection:‘column’,width:W,
-border:`1px solid ${T.border}`,borderRadius:4,overflow:‘hidden’,
-boxShadow:‘0 4px 16px rgba(42,35,24,0.15)’}}>
+<div style={{fontFamily:"'Courier New',monospace",background:T.paper,color:T.ink,
+display:'flex',flexDirection:'column',width:W,
+border:`1px solid ${T.border}`,borderRadius:4,overflow:'hidden',
+boxShadow:'0 4px 16px rgba(42,35,24,0.15)'}}>
 
-```
   {/* Header */}
   <div style={{padding:'5px 14px',background:T.paperDk,borderBottom:`1px solid ${T.border}`,
                display:'flex',alignItems:'center',justifyContent:'space-between'}}>
@@ -829,7 +828,7 @@ boxShadow:‘0 4px 16px rgba(42,35,24,0.15)’}}>
             ? <button onClick={()=>setSavingPre(true)} style={{...tgl(false),padding:'6px 14px',fontSize:10,alignSelf:'flex-start'}}>+ Save as Preset</button>
             : <div style={{display:'flex',gap:7}}>
                 <input value={saveName} onChange={e=>setSaveName(e.target.value)}
-                  placeholder="Name this preset…" onKeyDown={e=>e.key==='Enter'&&handleSavePre()} autoFocus
+                  placeholder="Name this preset..." onKeyDown={e=>e.key==='Enter'&&handleSavePre()} autoFocus
                   style={{flex:1,background:T.paper,border:`1px solid ${T.border}`,color:T.ink,
                           borderRadius:3,padding:'5px 9px',fontSize:11,fontFamily:'inherit',outline:'none'}}/>
                 <button onClick={handleSavePre}
@@ -903,7 +902,7 @@ boxShadow:‘0 4px 16px rgba(42,35,24,0.15)’}}>
         style={{background:exporting?T.paperDk:T.ink,border:`1px solid ${T.ink}`,
                 color:exporting?T.ink3:T.paper,borderRadius:3,padding:'7px 14px',
                 cursor:exporting?'not-allowed':'pointer',fontSize:10,letterSpacing:'0.1em',fontFamily:'inherit',textTransform:'uppercase'}}>
-        {exporting?`${expPct}%  working…`:'↓ PNG Sequence'}
+        {exporting?`${expPct}%  working...`:'↓ PNG Sequence'}
       </button>
       <button onClick={()=>doExport('spritesheet')} disabled={exporting}
         style={{background:'transparent',border:`1px solid ${T.border}`,
@@ -923,7 +922,6 @@ boxShadow:‘0 4px 16px rgba(42,35,24,0.15)’}}>
     </p>
   </div>
 </div>
-```
 
 );
 }
