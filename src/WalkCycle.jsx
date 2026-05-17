@@ -504,6 +504,7 @@ const [exporting,   setExporting]   = useState(false);
 const [expPct,      setExpPct]      = useState(0);
 const [expRes,      setExpRes]      = useState(1);
 const [expTrans,    setExpTrans]    = useState(false);
+const [downloadReady, setDownloadReady] = useState(null);
 const [userPresets, setUserPresets] = useState([]);
 const [savingPre,   setSavingPre]   = useState(false);
 const [saveName,    setSaveName]    = useState('');
@@ -581,25 +582,15 @@ setUserPresets(v=>[...v,preset]); setSaveName(''); setSavingPre(false);
 const handleDelPre=async id=>{await store.del(`wcs:preset:${id}`);setUserPresets(v=>v.filter(p=>p.id!==id));};
 
 // Export
-const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
-const saveBlob=(blob,filename)=>{
-  const url=URL.createObjectURL(blob);
-  if(isIOS){
-    window.open(url,'_blank');
-    setTimeout(()=>URL.revokeObjectURL(url),2000);
-  } else {
-    const a=document.createElement('a');a.href=url;a.download=filename;
-    document.body.appendChild(a);a.click();document.body.removeChild(a);
-    setTimeout(()=>URL.revokeObjectURL(url),100);
-  }
-};
 const canvasToBlob=canvas=>new Promise(res=>canvas.toBlob(res,'image/png'));
 const doExport=async mode=>{
+if(downloadReady){URL.revokeObjectURL(downloadReady.url);setDownloadReady(null);}
 setExporting(true);
 const {params:p,style:st}=live.current;
 const N=cycLen(p.fps,p.speed),dc=Math.ceil(N/p.animOn),res=expRes;
 const off=document.createElement('canvas');off.width=W*res;off.height=H*res;
 const oc=off.getContext('2d');
+let blob,filename;
 if(mode==='spritesheet'){
 const sh=document.createElement('canvas');sh.width=W*res*dc;sh.height=H*res;
 const sc=sh.getContext('2d');
@@ -609,21 +600,22 @@ renderFrame(off,rp,W/2,p,st,{forExport:true,transparent:expTrans});
 oc.restore();sc.drawImage(off,d*W*res,0);
 setExpPct(Math.round((d+1)/dc*100));await new Promise(r=>setTimeout(r,15));
 }
-saveBlob(await canvasToBlob(sh),`walk_spritesheet_${dc}drw.png`);
+blob=await canvasToBlob(sh);
+filename=`walk_spritesheet_${dc}drw.png`;
 } else {
 const zip=new JSZip();
 for(let d=0;d<dc;d++){
 const rp=d*p.animOn*TAU/N; oc.save();if(res>1)oc.scale(res,res);
 renderFrame(off,rp,W/2,p,st,{forExport:true,transparent:expTrans});
 oc.restore();
-const filename=`walk_${p.animOn>1?'drw':'fr'}_${String(d+1).padStart(3,'0')}.png`;
-zip.file(filename, await canvasToBlob(off));
+zip.file(`walk_${p.animOn>1?'drw':'fr'}_${String(d+1).padStart(3,'0')}.png`, await canvasToBlob(off));
 setExpPct(Math.round((d+1)/dc*50));await new Promise(r=>setTimeout(r,15));
 }
-const zipBlob=await zip.generateAsync({type:'blob'},meta=>{setExpPct(50+Math.round(meta.percent/2));});
-saveBlob(zipBlob,`walk_sequence_${dc}${p.animOn>1?'drw':'fr'}.zip`);
+blob=await zip.generateAsync({type:'blob'},meta=>{setExpPct(50+Math.round(meta.percent/2));});
+filename=`walk_sequence_${dc}${p.animOn>1?'drw':'fr'}.zip`;
 }
 setExporting(false);setExpPct(0);
+setDownloadReady({url:URL.createObjectURL(blob),filename});
 };
 
 // ── Style helpers (paper & ink theme) ───────────────────────────────────────
@@ -932,8 +924,16 @@ boxShadow:'0 4px 16px rgba(42,35,24,0.15)'}}>
         <div style={{height:'100%',background:T.ink,width:`${expPct}%`,transition:'width 0.1s',borderRadius:1}}/>
       </div>
     )}
+    {downloadReady&&(
+      <a href={downloadReady.url} download={downloadReady.filename}
+         onClick={()=>setTimeout(()=>{URL.revokeObjectURL(downloadReady.url);setDownloadReady(null);},500)}
+         style={{display:'block',marginTop:10,padding:'8px 12px',background:T.blue,color:'#fff',
+                 borderRadius:3,fontSize:11,textAlign:'center',textDecoration:'none',
+                 letterSpacing:'0.08em',fontFamily:'inherit'}}>
+        ↓ {downloadReady.filename}
+      </a>
+    )}
     <p style={{marginTop:8,fontSize:9,color:T.ink4,lineHeight:1.6,fontStyle:'italic',margin:'8px 0 0'}}>
-      {isIOS&&'On iOS: tap the file to open it, then use the share sheet to save. '}
       Sequence exports as a single zip. Spritesheet exports as one PNG. Onion skins, key poses and ghost trail excluded.
       {params.animOn===2&&` On 2s: ${dc} unique drawings, each held 2 frames.`}
     </p>
