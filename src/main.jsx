@@ -1,6 +1,9 @@
-import React from 'react'
+import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import App from './App'
-import './index.css'
+import WalkCycleTool from '../walkcyclestudio.jsx'
 
-createRoot(document.getElementById('root')).render(<App />)
+createRoot(document.getElementById('root')).render(
+  <StrictMode>
+    <WalkCycleTool />
+  </StrictMode>,
+)
