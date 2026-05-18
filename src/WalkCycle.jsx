@@ -186,13 +186,17 @@ const bK=biasKnee(legKnee(hipX,hipY,bAn.x,bAn.y,thigh,shin,dir), legBend);
 bK.y=Math.min(bK.y,GY-1);
 // footLift: during swing, extend the ankle along the thigh direction.
 // At footLift=1 the shin aligns with the thigh — leg fully straight at peak swing.
+// Normalise to shin length after blending so the shin never appears to shrink.
 if(footLift>0){
   function liftFoot(an, k, swing) {
     if(swing<=0) return;
     const tdx=k.x-hipX, tdy=k.y-hipY, tl=Math.sqrt(tdx*tdx+tdy*tdy)||1;
     const blend=footLift*swing;
-    an.x+=(k.x+tdx/tl*shin-an.x)*blend;
-    an.y+=(k.y+tdy/tl*shin-an.y)*blend;
+    const nx=an.x+(k.x+tdx/tl*shin-an.x)*blend;
+    const ny=an.y+(k.y+tdy/tl*shin-an.y)*blend;
+    const dl=Math.sqrt((nx-k.x)**2+(ny-k.y)**2)||shin;
+    an.x=k.x+(nx-k.x)/dl*shin;
+    an.y=k.y+(ny-k.y)/dl*shin;
   }
   liftFoot(fAn, fK, Math.max(0, Math.cos(phase)));
   liftFoot(bAn, bK, Math.max(0, Math.cos(phase+Math.PI)));
