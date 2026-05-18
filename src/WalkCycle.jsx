@@ -153,7 +153,7 @@ return cx + dir * sl * Math.sin((sf - 0.5) * Math.PI);
 
 // ── Pure pose engine ──────────────────────────────────────────────────────────
 function computePose(phase, cx, p, dir) {
-const {stepLength,kneeLift,torsoLen,legLen,armLen,headSize,footSize,legBend,armBend,
+const {stepLength,kneeLift,footLift,torsoLen,legLen,armLen,headSize,footSize,legBend,armBend,
 bodyTilt,hipSway,leanAngle,headBob,headPendulum,armSwing,bounce} = p;
 const thigh=legLen*0.52, shin=legLen*0.48, uArm=armLen*0.48, fArm=armLen*0.52;
 // Hip height: derived from how far the stance foot is horizontally from the hip.
@@ -184,6 +184,19 @@ const fK=biasKnee(legKnee(hipX,hipY,fAn.x,fAn.y,thigh,shin,dir), legBend);
 fK.y=Math.min(fK.y,GY-1);
 const bK=biasKnee(legKnee(hipX,hipY,bAn.x,bAn.y,thigh,shin,dir), legBend);
 bK.y=Math.min(bK.y,GY-1);
+// footLift: during swing, extend the ankle along the thigh direction.
+// At footLift=1 the shin aligns with the thigh — leg fully straight at peak swing.
+if(footLift>0){
+  function liftFoot(an, k, swing) {
+    if(swing<=0) return;
+    const tdx=k.x-hipX, tdy=k.y-hipY, tl=Math.sqrt(tdx*tdx+tdy*tdy)||1;
+    const blend=footLift*swing;
+    an.x+=(k.x+tdx/tl*shin-an.x)*blend;
+    an.y+=(k.y+tdy/tl*shin-an.y)*blend;
+  }
+  liftFoot(fAn, fK, Math.max(0, Math.cos(phase)));
+  liftFoot(bAn, bK, Math.max(0, Math.cos(phase+Math.PI)));
+}
 const {elbow:fE,hand:fH}=armSetup(phase+Math.PI,sX,sY,uArm,fArm,armSwing,armBend,dir);
 const {elbow:bE,hand:bH}=armSetup(phase,sX,sY,uArm,fArm,armSwing,armBend,dir);
 // Ground is a hard wall — clamp all arm endpoints above GY
@@ -398,6 +411,7 @@ walk:[
 {key:'speed',     label:'Speed',       min:0.2,max:3,  step:0.05,unit:'×'},
 {key:'stepLength',label:'Step Length', min:5,  max:55, step:1,   unit:'px'},
 {key:'kneeLift',  label:'Knee Lift',   min:0,  max:35, step:1,   unit:'px'},
+{key:'footLift',  label:'Foot Lift',   min:0,  max:1,  step:0.05,unit:''},
 {key:'bounce',    label:'Bounce',      min:0,  max:20, step:0.5, unit:''},
 {key:'armSwing',  label:'Arm Swing',   min:0,  max:50, step:1,   unit:'px'},
 {key:'heelToe',   label:'Heel/Toe',    min:-1, max:1,  step:0.05,unit:''},
@@ -426,7 +440,7 @@ Toddler: {speed:1.1, bounce:16, armSwing:14,stepLength:14,kneeLift:18,torsoLen:3
 const DEF_PARAMS = {
 legLen:68,armLen:46,torsoLen:44,headSize:14,footSize:12,lineWidth:3,
 legBend:4,armBend:15,   // legBend:4 gives the knee a natural forward lean
-speed:1,stepLength:24,kneeLift:14,bounce:6,armSwing:20,heelToe:0.8,
+speed:1,stepLength:24,kneeLift:14,footLift:0,bounce:6,armSwing:20,heelToe:0.8,
 leanAngle:0,bodyTilt:0,hipSway:0,headBob:2,headPendulum:2,ghostTrail:0,
 fps:24,animOn:1,feel:0.5,
 };
