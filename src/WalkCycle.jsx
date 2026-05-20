@@ -352,9 +352,65 @@ const KEY_POSES = [
 {key:'up',     label:'Up',     phase:TAU*0.75,color:'#DC2626',fill:'rgba(220,38,38,0.08)'},
 ];
 
+// ── Guinea pig easter egg ─────────────────────────────────────────────────────
+// Uses a single continuous bezier path for the body+head silhouette so it looks
+// like one organic shape rather than overlapping circles.
+// Origin placed at ground level below the pig. ctx.scale(dir*s, s) handles
+// direction flip and overall size in one step.
+function drawGuineaPig(ctx, cx, groundY, phase, dir, legLen, img) {
+const hue = (Date.now() / 12) % 360;
+const t = ((phase % TAU) + TAU) % TAU;
+const s = Math.max(0.5, Math.min(1.6, (legLen || 68) / 68));
+const bob = Math.sin(t * 2) * 3;
+
+ctx.save();
+ctx.translate(cx, groundY + bob);
+ctx.scale(dir * s, s);
+ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+
+// ── LEGS (drawn first so body covers their tops) ────────────────────────────
+const legXs = [-32, -17, -2, 12];
+const legPO = [0, Math.PI, Math.PI, 0];
+ctx.strokeStyle = '#111'; ctx.lineWidth = 6;
+legXs.forEach((lx, i) => {
+  const sw = Math.sin(t + legPO[i]) * 4;
+  ctx.beginPath(); ctx.moveTo(lx, -6); ctx.lineTo(lx + sw, 6); ctx.stroke();
+  ctx.fillStyle = '#111';
+  ctx.beginPath(); ctx.ellipse(lx + sw, 6, 6, 3, 0, 0, TAU); ctx.fill();
+});
+
+if (img) {
+  const iw = 100, ih = 63;
+  ctx.filter = `sepia(1) saturate(4) hue-rotate(${hue - 30}deg) brightness(0.85)`;
+  // PNG faces left — flip horizontally in local space before drawing
+  ctx.save();
+  ctx.scale(-1, 1);
+  ctx.drawImage(img, -50, -ih, iw, ih);
+  ctx.restore();
+  ctx.filter = 'none';
+} else {
+  // fallback bezier silhouette
+  const bodyColor = `hsl(${hue}, 70%, 45%)`;
+  ctx.fillStyle = bodyColor; ctx.strokeStyle = bodyDark; ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.moveTo(32, -10);
+  ctx.bezierCurveTo(38,-14, 43,-26, 42,-36);
+  ctx.bezierCurveTo(44,-44, 40,-56, 30,-60);
+  ctx.bezierCurveTo(20,-66,  6,-65,  -2,-58);
+  ctx.bezierCurveTo(-8,-53, -11,-45, -12,-40);
+  ctx.bezierCurveTo(-16,-40, -28,-38, -36,-33);
+  ctx.bezierCurveTo(-44,-27, -46,-16, -44,-7);
+  ctx.bezierCurveTo(-42, 3,  -34, 6,  -24,  4);
+  ctx.bezierCurveTo( -8,-1,   16,-3,   32,-10);
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+}
+
+ctx.restore();
+}
+
 // ── Full frame render ─────────────────────────────────────────────────────────
 function renderFrame(canvas, rawPhase, cx, p, st, opts={}) {
-const {forExport=false,transparent=false,keyPoseState=null,onion=null} = opts;
+const {forExport=false,transparent=false,keyPoseState=null,onion=null,marsvinMode=false,marsvinImg=null} = opts;
 const ctx = canvas.getContext('2d');
 const dpr = canvas.width / W;
 ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -366,7 +422,8 @@ const tN = ((snappedRaw%TAU)+TAU)%TAU/TAU;
 const phase = applyFeel(tN, p.feel)*TAU;
 
 ctx.clearRect(0,0,W,H);
-if(!transparent){ctx.fillStyle=bg.bg; ctx.fillRect(0,0,W,H);}
+if(marsvinMode){ctx.fillStyle=`hsl(${(Date.now()/12)%360},100%,85%)`;ctx.fillRect(0,0,W,H);}
+else if(!transparent){ctx.fillStyle=bg.bg; ctx.fillRect(0,0,W,H);}
 
 if(st.showGrid&&!forExport){
 ctx.strokeStyle=light?'rgba(0,0,0,0.07)':'rgba(255,255,255,0.07)'; ctx.lineWidth=1;
@@ -418,6 +475,7 @@ if(lift<4){ctx.globalAlpha=(1-lift/4)*0.9;ctx.fillStyle=c;ctx.beginPath();ctx.ar
 });
 ctx.restore();
 }
+if(!marsvinMode){
 if(onion?.on&&!forExport){
 for(let i=onion.count;i>=1;i--){
 const pN2=((snappedRaw-i*snapStep)%TAU+TAU)%TAU/TAU;
@@ -439,6 +497,9 @@ const gPh=applyFeel(pN2,p.feel)*TAU;
 drawFigure(ctx,computePose(gPh,cx,p,dir),p,col,dir,gPh,0.28*(gc-g+1)/gc);
 }
 drawFigure(ctx,computePose(phase,cx,p,dir),p,col,dir,phase);
+} else {
+drawGuineaPig(ctx,cx,GY,phase,dir,p.legLen,marsvinImg);
+}
 {
 const norm=((snappedRaw%TAU)+TAU)%TAU;
 const frameN=Math.min(Math.floor(norm/TAU*N)+1,N);
@@ -631,7 +692,8 @@ const THEMES = [
   blue:'#CC0066',red:'#FF0044',amber:'#FF8800',
 },
 ];
-function ha(hex, a) { // hex + alpha → rgba string (for canvas and computed borders)
+function ha(hex, a) { // hex or hsl + alpha → rgba/hsla string
+if(typeof hex==='string'&&hex.startsWith('hsl(')) return hex.replace('hsl(','hsla(').replace(')',`,${a})`);
 const [r,g,b]=hex.match(/\w\w/g).map(x=>parseInt(x,16)); return `rgba(${r},${g},${b},${a})`;
 }
 
@@ -717,8 +779,16 @@ const [activePreset,  setActivePreset]  = useState(null);
 const [importCode,    setImportCode]    = useState('');
 const [importErr,     setImportErr]     = useState(false);
 const [copyMsg,       setCopyMsg]       = useState('');
+const [marsvinMode,   setMarsvinMode]   = useState(false);
+const [marsvinHue,    setMarsvinHue]    = useState(0);
+const marsvinImgRef = useRef(null);
+useEffect(() => {
+  const img = new Image();
+  img.src = '/walkcycle/marsvin.png';
+  img.onload = () => { marsvinImgRef.current = img; };
+}, []);
 
-live.current = {params,style,playback,keyPoses,onionOn,onionCount};
+live.current = {params,style,playback,keyPoses,onionOn,onionCount,marsvinMode};
 const setP  = (key,val) => { setActivePreset(null); setParams(p=>{
   const next={...p,[key]:val};
   if(key==='legLen') next.stepLength=Math.min(next.stepLength, Math.floor(val*0.97));
@@ -726,11 +796,36 @@ const setP  = (key,val) => { setActivePreset(null); setParams(p=>{
 }); };
 const setSt = (key,val) => setStyle(s=>({...s,[key]:val}));
 
-const T = THEMES[style.themeIdx ?? 0];
+let T = THEMES[style.themeIdx ?? 0];
+if(marsvinMode){
+const h=marsvinHue;
+T={...T,
+title:'🐾 DESMONDS MARSVIN!!',
+subtitle:'ITS JUST A WALKING GUINEA PIG',
+titleFont:"'Righteous', cursive",
+titleSize:17,
+paper:    `hsl(${h},100%,88%)`,
+paperDk:  `hsl(${(h+30)%360},100%,78%)`,
+paperLt:  `hsl(${(h+60)%360},100%,92%)`,
+border:   `hsl(${(h+120)%360},100%,55%)`,
+borderLt: `hsl(${(h+150)%360},100%,70%)`,
+ink:      `hsl(${(h+180)%360},90%,22%)`,
+ink2:     `hsl(${(h+200)%360},80%,32%)`,
+ink3:     `hsl(${(h+220)%360},70%,42%)`,
+ink4:     `hsl(${(h+240)%360},60%,52%)`,
+blue:     `hsl(${(h+60)%360},100%,42%)`,
+red:      `hsl(${(h+90)%360},100%,42%)`,
+amber:    `hsl(${(h+120)%360},100%,42%)`,
+tabIcons: {body:'🐾',walk:'🥕',style:'✨',timing:'🌈',presets:'🐹'},
+};}
 useEffect(()=>{
   document.documentElement.dataset.theme = ['light','dark','pink'][style.themeIdx ?? 0];
 },[style.themeIdx]);
-
+useEffect(()=>{
+  if(!marsvinMode) return;
+  const id=setInterval(()=>setMarsvinHue(h=>(h+2)%360),50);
+  return ()=>clearInterval(id);
+},[marsvinMode]);
 // Load saved presets + read URL hash
 useEffect(()=>{
 (async()=>{
@@ -781,7 +876,7 @@ if(walkXRef.current<-90)  walkXRef.current=W+90;
 } else { walkXRef.current=W/2; }
 } else if(st.loco!=='walk') walkXRef.current=W/2;
 const cx=st.loco==='walk'?walkXRef.current:W/2;
-renderFrame(canvas,phaseRef.current,cx,p,st,{keyPoseState:kp,onion:{on:oo,count:oc}});
+renderFrame(canvas,phaseRef.current,cx,p,st,{keyPoseState:kp,onion:{on:oo,count:oc},marsvinMode:live.current.marsvinMode,marsvinImg:marsvinImgRef.current});
 const N=cycLen(p.fps,p.speed),snap=TAU/N*p.animOn;
 const frac=((Math.round(phaseRef.current/snap)*snap%TAU)+TAU)%TAU/TAU;
 if(scrubRef.current) scrubRef.current.style.left=`${frac*100}%`;
@@ -1062,6 +1157,34 @@ boxShadow:`0 4px 16px ${ha(T.ink,0.18)}`,
   {/* Tab content */}
   <div style={{background:T.paperLt,minHeight:258}}>
 
+  {marsvinMode&&(
+    <div style={{...tabBody,alignItems:'center',gap:20,textAlign:'center'}}>
+      <div style={{fontSize:22,fontWeight:'bold',color:T.ink,fontFamily:"'Righteous',cursive",letterSpacing:'0.05em'}}>
+        🐾 MARSVIN MODE 🐾
+      </div>
+      <div style={{width:'100%',display:'flex',flexDirection:'column',gap:6}}>
+        <label style={{fontSize:10,color:T.ink2,textTransform:'uppercase',letterSpacing:'0.12em'}}>Speed</label>
+        <input type="range" min={0.2} max={5} step={0.05} value={params.speed}
+          onChange={e=>setP('speed',+e.target.value)}
+          style={{width:'100%',accentColor:'hotpink',cursor:'pointer'}}/>
+      </div>
+      <div style={{width:'100%',display:'flex',flexDirection:'column',gap:6}}>
+        <label style={{fontSize:10,color:T.ink2,textTransform:'uppercase',letterSpacing:'0.12em'}}>Size</label>
+        <input type="range" min={35} max={110} step={1} value={params.legLen}
+          onChange={e=>setP('legLen',+e.target.value)}
+          style={{width:'100%',accentColor:'hotpink',cursor:'pointer'}}/>
+      </div>
+      <button onClick={()=>{setMarsvinMode(false);setSt('loco','place');}}
+        style={{background:'transparent',border:'2px solid hotpink',color:T.ink,
+                borderRadius:3,padding:'7px 20px',cursor:'pointer',fontSize:10,fontFamily:'inherit',
+                letterSpacing:'0.1em',textTransform:'uppercase'}}>
+        Back to Normal
+      </button>
+    </div>
+  )}
+
+  {!marsvinMode&&<>
+
     {tab==='body'&&<div style={tabBody}><SliderGrid sliders={TAB_SLIDERS.body} params={params} onChange={setP}/></div>}
 
     {tab==='walk'&&(
@@ -1133,24 +1256,56 @@ boxShadow:`0 4px 16px ${ha(T.ink,0.18)}`,
     {tab==='presets'&&(
       <div style={tabBody}>
         <div style={sec}>
-          <div style={secLbl}>Share</div>
-          <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center'}}>
-            <button onClick={copyCode} style={{...tgl(false),padding:'5px 12px',fontSize:10}}>⧉ Copy Code</button>
-            <button onClick={copyLink} style={{...tgl(false),padding:'5px 12px',fontSize:10}}>⧉ Copy Link</button>
-            {copyMsg&&<span style={{fontSize:9,color:T.blue}}>{copyMsg}</span>}
-          </div>
-          <div style={{display:'flex',gap:6}}>
-            <input value={importCode} onChange={e=>{setImportCode(e.target.value);setImportErr(false);}}
-              placeholder="Paste code to import…" onKeyDown={e=>e.key==='Enter'&&doImport(importCode)}
-              style={{flex:1,background:T.paper,border:`1px solid ${importErr?T.red:T.border}`,color:T.ink,
-                      borderRadius:3,padding:'5px 9px',fontSize:10,fontFamily:'inherit',outline:'none'}}/>
-            <button onClick={()=>doImport(importCode)}
-              style={{background:T.ink,border:'none',color:T.paper,borderRadius:3,
-                      padding:'5px 10px',cursor:'pointer',fontSize:10,fontFamily:'inherit'}}>
-              Import
+          <div style={secLbl}>Built-in</div>
+          <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+            {Object.keys(SYSTEM_PRESETS).map(name=>(
+              <button key={name} onClick={()=>applyPreset(SYSTEM_PRESETS[name],name)}
+                style={{background:T.paper,border:`1px solid ${T.border}`,color:T.ink2,
+                        borderRadius:3,padding:'5px 14px',cursor:'pointer',fontSize:10,
+                        letterSpacing:'0.08em',fontFamily:'inherit',textTransform:'uppercase'}}
+                onMouseEnter={e=>e.currentTarget.style.background=T.paperDk}
+                onMouseLeave={e=>e.currentTarget.style.background=T.paper}>
+                {name}
+              </button>
+            ))}
+            <button
+              onClick={()=>{const next=!marsvinMode;setMarsvinMode(next);if(next){setSt('loco','walk');setPlayback('forward');}}}
+              style={{background:marsvinMode?'hotpink':T.paper,
+                      border:`2px solid ${marsvinMode?'deeppink':T.border}`,
+                      color:marsvinMode?'#fff':T.ink2,
+                      fontWeight:marsvinMode?'bold':'normal',
+                      borderRadius:3,padding:'5px 14px',cursor:'pointer',fontSize:10,
+                      letterSpacing:'0.08em',fontFamily:'inherit',textTransform:'uppercase'}}>
+              {marsvinMode?'MARSVIN!! 🐾':'MARSVIN?'}
             </button>
           </div>
-          {importErr&&<span style={{fontSize:9,color:T.red}}>Invalid code</span>}
+        </div>
+        <div style={divider}/>
+        <div style={sec}>
+          <div style={secLbl}>My Presets {userPresets.length>0&&`(${userPresets.length})`}</div>
+          {userPresets.length===0&&(
+            <p style={{fontSize:10,color:T.ink4,fontStyle:'italic',margin:0}}>
+              No saved presets yet — dial in your settings and save below.
+            </p>
+          )}
+          {userPresets.map(pre=>(
+            <div key={pre.id} style={{display:'flex',alignItems:'center',gap:9,
+                                     background:T.paper,border:`1px solid ${T.border}`,
+                                     borderRadius:4,padding:'7px 10px'}}>
+              {pre.thumbnail&&<img src={pre.thumbnail} alt=""
+                style={{width:60,height:40,objectFit:'cover',borderRadius:2,
+                        flexShrink:0,border:`1px solid ${T.borderLt}`}}/>}
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:12,color:T.ink,fontWeight:'bold',
+                             overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{pre.name}</div>
+                <div style={{fontSize:9,color:T.ink4,marginTop:2}}>{new Date(pre.createdAt).toLocaleDateString()}</div>
+              </div>
+              <div style={{display:'flex',gap:5,flexShrink:0}}>
+                <button onClick={()=>applyPreset(pre.params,pre.name)} style={{...tgl(false),padding:'4px 10px',fontSize:9}}>Apply</button>
+                <button onClick={()=>handleDelPre(pre.id)} style={{...tgl(true,true),padding:'4px 8px',fontSize:9}}>✕</button>
+              </div>
+            </div>
+          ))}
         </div>
         <div style={divider}/>
         <div style={sec}>
@@ -1173,49 +1328,28 @@ boxShadow:`0 4px 16px ${ha(T.ink,0.18)}`,
         </div>
         <div style={divider}/>
         <div style={sec}>
-          <div style={secLbl}>Built-in</div>
-          <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
-            {Object.keys(SYSTEM_PRESETS).map(name=>(
-              <button key={name} onClick={()=>applyPreset(SYSTEM_PRESETS[name],name)}
-                style={{background:T.paper,border:`1px solid ${T.border}`,color:T.ink2,
-                        borderRadius:3,padding:'5px 14px',cursor:'pointer',fontSize:10,
-                        letterSpacing:'0.08em',fontFamily:'inherit',textTransform:'uppercase'}}
-                onMouseEnter={e=>e.currentTarget.style.background=T.paperDk}
-                onMouseLeave={e=>e.currentTarget.style.background=T.paper}>
-                {name}
-              </button>
-            ))}
+          <div style={secLbl}>Share</div>
+          <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center'}}>
+            <button onClick={copyCode} style={{...tgl(false),padding:'5px 12px',fontSize:10}}>⧉ Copy Code</button>
+            <button onClick={copyLink} style={{...tgl(false),padding:'5px 12px',fontSize:10}}>⧉ Copy Link</button>
+            {copyMsg&&<span style={{fontSize:9,color:T.blue}}>{copyMsg}</span>}
           </div>
-        </div>
-        <div style={divider}/>
-        <div style={sec}>
-          <div style={secLbl}>My Presets {userPresets.length>0&&`(${userPresets.length})`}</div>
-          {userPresets.length===0&&(
-            <p style={{fontSize:10,color:T.ink4,fontStyle:'italic',margin:0}}>
-              No saved presets yet — dial in your settings and save above.
-            </p>
-          )}
-          {userPresets.map(pre=>(
-            <div key={pre.id} style={{display:'flex',alignItems:'center',gap:9,
-                                     background:T.paper,border:`1px solid ${T.border}`,
-                                     borderRadius:4,padding:'7px 10px'}}>
-              {pre.thumbnail&&<img src={pre.thumbnail} alt=""
-                style={{width:60,height:40,objectFit:'cover',borderRadius:2,
-                        flexShrink:0,border:`1px solid ${T.borderLt}`}}/>}
-              <div style={{flex:1,minWidth:0}}>
-                <div style={{fontSize:12,color:T.ink,fontWeight:'bold',
-                             overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{pre.name}</div>
-                <div style={{fontSize:9,color:T.ink4,marginTop:2}}>{new Date(pre.createdAt).toLocaleDateString()}</div>
-              </div>
-              <div style={{display:'flex',gap:5,flexShrink:0}}>
-                <button onClick={()=>applyPreset(pre.params,pre.name)} style={{...tgl(false),padding:'4px 10px',fontSize:9}}>Apply</button>
-                <button onClick={()=>handleDelPre(pre.id)} style={{...tgl(true,true),padding:'4px 8px',fontSize:9}}>✕</button>
-              </div>
-            </div>
-          ))}
+          <div style={{display:'flex',gap:6}}>
+            <input value={importCode} onChange={e=>{setImportCode(e.target.value);setImportErr(false);}}
+              placeholder="Paste code to import…" onKeyDown={e=>e.key==='Enter'&&doImport(importCode)}
+              style={{flex:1,background:T.paper,border:`1px solid ${importErr?T.red:T.border}`,color:T.ink,
+                      borderRadius:3,padding:'5px 9px',fontSize:10,fontFamily:'inherit',outline:'none'}}/>
+            <button onClick={()=>doImport(importCode)}
+              style={{background:T.ink,border:'none',color:T.paper,borderRadius:3,
+                      padding:'5px 10px',cursor:'pointer',fontSize:10,fontFamily:'inherit'}}>
+              Import
+            </button>
+          </div>
+          {importErr&&<span style={{fontSize:9,color:T.red}}>Invalid code</span>}
         </div>
       </div>
     )}
+  </>}
   </div>
 
   {/* Export */}
