@@ -1,17 +1,42 @@
 import { useState, useEffect, useRef } from "react";
 import JSZip from "jszip";
+import { GIFEncoder, quantize, applyPalette } from "gifenc";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const W = 480, H = 320, GY = Math.round(H * 0.77), TAU = Math.PI * 2;
+const DPR = Math.min(window.devicePixelRatio || 1, 2);
+const EXP_ASPECTS = [
+  {key:'3:2',     label:'3:2',      w:480, h:320},
+  {key:'16:9',    label:'16:9',     w:480, h:270},
+  {key:'1:1',     label:'Square',   w:320, h:320},
+  {key:'9:16',    label:'Portrait', w:270, h:480},
+];
+// Render src (W×H at res scale) into an expW×expH canvas, letterboxed with bg.
+function compositeFrame(src, expW, expH, bgColor, res) {
+  const ew=expW*res, eh=expH*res;
+  const ex=document.createElement('canvas'); ex.width=ew; ex.height=eh;
+  const ctx=ex.getContext('2d');
+  ctx.fillStyle=bgColor; ctx.fillRect(0,0,ew,eh);
+  const scale=Math.min(ew/src.width, eh/src.height);
+  ctx.drawImage(src,0,0,src.width,src.height,
+    (ew-src.width*scale)/2,(eh-src.height*scale)/2,src.width*scale,src.height*scale);
+  return ex;
+}
 
 // ── Physics helpers ───────────────────────────────────────────────────────────
 function legKnee(hx, hy, fx, fy, t, s, dir) {
-const dx = fx-hx, dy = fy-hy, d = Math.min(Math.sqrt(dx*dx+dy*dy), t+s-0.5);
+const dx = fx-hx, dy = fy-hy, d = Math.sqrt(dx*dx+dy*dy) || 1;
 const a = Math.acos(Math.max(-1, Math.min(1, (d*d+t*t-s*s)/(2*d*t))));
 const base = Math.atan2(dy, dx);
 const k1 = {x: hx+Math.cos(base+a)*t, y: hy+Math.sin(base+a)*t};
 const k2 = {x: hx+Math.cos(base-a)*t, y: hy+Math.sin(base-a)*t};
 return (dir >= 0 ? k1.x >= k2.x : k1.x <= k2.x) ? k1 : k2;
+}
+function biasKnee(kn, bias, dir, hx, hy, t) {
+  if (!bias) return kn;
+  const dx = kn.x + bias*dir - hx, dy = kn.y - hy;
+  const d = Math.sqrt(dx*dx + dy*dy) || t;
+  return {x: hx + dx/d*t, y: hy + dy/d*t};
 }
 function armSetup(ap, shX, shY, uA, fA, swing, bendDeg, dir) {
 const max = Math.asin(Math.min(swing / Math.max(uA+fA, 1), 0.95));
@@ -43,34 +68,39 @@ return { elbow:{x:eX,y:eY}, hand:{x:eX+Math.sin(fa)*dir*fA, y:eY+Math.cos(fa)*fA
 //
 // Ball stays on GY while within reach; lifts smoothly once the ankle rises
 // beyond mtpLen. Toe is flat at GY while ball is grounded, angled in the air.
-function drawFoot(ctx, fx, fy, lp, sz, dir, lw, am, stroke, legLen, stepLen, heelToe) {
+function isDark(hex) { if(!hex||!hex.startsWith('#')) return false; const [r,g,b]=hex.match(/\w\w/g).map(x=>parseInt(x,16)); return 0.299*r+0.587*g+0.114*b<60; }
+
+function drawFoot(ctx, fx, fy, lp, sz, dir, lw, am, stroke, legLen, stepLen, heelToe, liftTilt=0, halo=null) {
 const mtpLen = sz * 0.75, toeLen = sz * 0.25;
 const maxDeg = Math.asin(Math.min(0.92, stepLen / Math.max(legLen, 1))) * (180 / Math.PI);
 const rawA   = maxDeg * heelToe * Math.sin(lp) * Math.PI / 180;
 const onGround = Math.cos(lp) <= 0;
 const rise = Math.max(0, GY - fy);                            // ankle height above GY
 const t = ((lp % TAU) + TAU) % TAU / TAU;
-const geoA = -Math.asin(Math.min(1, rise / mtpLen));          // geometry angle (negative = heel up)
+// geoA: geometry angle that places ball of foot at GY. Capped at -72° so foot never points straight down.
+const geoA = Math.max(-Math.PI * 0.4, -Math.asin(Math.min(1, (onGround ? rise : Math.min(rise, sz * 0.45)) / mtpLen)));
 
 let a;
 if (onGround) {
-// Stance: flat/contact uses phase angle; heel-rise uses geometry angle
-a = rise < 0.5 ? Math.max(0, rawA) : geoA;
+// Blend rawA (heel-down at contact, flat at mid-stance) → geoA (heel-rise geometry).
+// Smooth transition over first half of foot-size height — no snap.
+const rBlend = Math.min(1, rise / Math.max(sz * 0.5, 1));
+a = rawA * (1 - rBlend) + geoA * rBlend;
 } else {
-// Swing: single continuous blend from geometry angle (toe-off) → heel-down (contact)
-// swingNorm: 0 at toe-off, 0.5 at mid-swing, 1 at contact
 const swingNorm = ((t - 0.75 + 1) % 1) / 0.5;
 if (swingNorm <= 0.5) {
-// Early swing — geometry angle → neutral (rawA×0.4)
-const p = Math.sin(swingNorm * Math.PI);                  // 0→1 ease-out
-a = geoA + (rawA * 0.4 - geoA) * p;
+const fadeOut = swingNorm < 0.15 ? Math.cos(swingNorm / 0.15 * Math.PI * 0.5) : 0;
+a = geoA * fadeOut;
 } else {
-// Late swing — neutral → full heel-down (rawA), foot prepares for heel-strike
-const p = Math.sin((swingNorm - 0.5) * Math.PI);          // 0→1 ease-in
+// Late swing: prepare heel-down for contact.
+// Clamp a >= 0 when ankle is significantly elevated — prevents foot appearing to
+// rotate backward from the shin when the foot is raised high (kick-out position).
+const p = Math.sin((swingNorm - 0.5) * Math.PI);
 a = rawA * (0.4 + 0.6 * p);
+if (rise > sz * 0.4) a = Math.max(0, a);
 }
+a += liftTilt;
 }
-
 const ca = Math.cos(a), sa = Math.sin(a);
 const bx = fx + mtpLen * ca * dir;
 const by = Math.min(fy - mtpLen * sa, GY);                    // never below GY
@@ -85,7 +115,9 @@ ty = Math.min(by - toeLen * sa, GY);
 }
 
 ctx.save();
-ctx.strokeStyle=stroke; ctx.lineWidth=lw*1.15; ctx.lineCap='round'; ctx.lineJoin='round'; ctx.globalAlpha=am;
+ctx.lineCap='round'; ctx.lineJoin='round'; ctx.globalAlpha=am;
+if(halo){ctx.strokeStyle=halo;ctx.lineWidth=lw*2.4;ctx.beginPath();ctx.moveTo(fx,fy);ctx.lineTo(bx,by);ctx.lineTo(tx,ty);ctx.stroke();}
+ctx.strokeStyle=stroke; ctx.lineWidth=lw*1.15;
 ctx.beginPath(); ctx.moveTo(fx,fy); ctx.lineTo(bx,by); ctx.lineTo(tx,ty); ctx.stroke();
 ctx.restore();
 }
@@ -151,95 +183,158 @@ const sf = ((t - 0.75 + 1) % 1) / 0.5;      // 0 at toe-off, 1 at next contact
 return cx + dir * sl * Math.sin((sf - 0.5) * Math.PI);
 }
 
-// ── Pure pose engine ──────────────────────────────────────────────────────────
+// ── Leg solver — IK with forward-biased virtual foot ─────────────────────────
+// Ankle = virtual foot target always. Knee = IK from hip to virtual foot.
+// swingFull = sin(sf·π): 0 at toe-off AND heel-strike → no discontinuity.
+// fwdPeak = sin((sf−0.5)·2π) for sf∈[0.5,1], else 0: peaks at sf=0.75 (foot
+// most forward), 0 at both transitions. Controls kneeLift boost + footLift blend.
+// After biasKnee, ankle is re-projected to keep shin length exact.
+function computeLeg(phase, cx, hipX, hipY, thigh, shin, sl, kneeLift, footLift, legBend, footSize, legLen, dir) {
+  const t      = ((phase % TAU) + TAU) % TAU / TAU;
+  const footX  = footPosX(phase, sl, dir, cx);
+  const baseY  = GY - heelRise(phase, footSize);
+
+  const inSwing  = !(t >= 0.25 && t <= 0.75);
+  const sf       = inSwing ? ((t - 0.75 + 1) % 1) / 0.5 : 0;   // 0=toe-off, 1=heel-strike
+  const swingFull = inSwing ? Math.sin(sf * Math.PI) : 0;         // 0 at both transitions
+
+  // fwdPeak: complete 0→1→0 half-sine in [sf=0.5, sf=1], zero in early swing.
+  // Ensures kneeLift peaks and footLift engages only when foot is forward.
+  const fwdPeak = (inSwing && sf >= 0.5) ? Math.sin((sf - 0.5) * 2 * Math.PI) : 0;
+
+  // kneeLift: small clearance all swing (0.3×swingFull), large forward lift (0.7×fwdPeak)
+  const maxRaise = Math.max(0, baseY - hipY - (thigh - shin) - 2);
+  const raise    = Math.min(
+    (swingFull * 0.3 + fwdPeak * 0.7) * (kneeLift / 100) * legLen * 0.9,
+    maxRaise
+  );
+  const footY    = baseY - raise;
+
+  const rawKnee = legKnee(hipX, hipY, footX, footY, thigh, shin, dir);
+
+  // Ankle = virtual foot (never derived from knee)
+  let ax = footX, ay = Math.min(footY, GY);
+
+  // footLift: in forward swing only, blend ankle toward thigh-parallel extension
+  if (footLift > 0 && fwdPeak > 0) {
+    const tx = rawKnee.x - hipX, ty = rawKnee.y - hipY;
+    const td = Math.sqrt(tx * tx + ty * ty) || thigh;
+    const ex = rawKnee.x + shin * tx / td;
+    const ey = rawKnee.y + shin * ty / td;
+    const blend = footLift * fwdPeak;
+    ax = ax * (1 - blend) + ex * blend;
+    ay = Math.min(ay * (1 - blend) + ey * blend, GY);
+    // Re-project: blend of two shin-length points moves inside the circle
+    const dka = Math.sqrt((ax - rawKnee.x) ** 2 + (ay - rawKnee.y) ** 2) || shin;
+    ax = rawKnee.x + (ax - rawKnee.x) / dka * shin;
+    ay = Math.min(rawKnee.y + (ay - rawKnee.y) / dka * shin, GY);
+  }
+
+  // legBend bias: 0 during swing (shin length stays exact; knee already lifted by kneeLift),
+  // fades with |cos(phase)| in stance so it's 0 at both transitions — no snap.
+  const biasBlend = inSwing ? 0 : Math.abs(Math.cos(phase));
+  const knee = biasKnee(rawKnee, legBend * biasBlend, dir, hipX, hipY, thigh);
+  knee.y = Math.min(knee.y, GY - 1);
+
+  // Stance only: maintain exact shin length by heel-lift if the biased knee is too far.
+  // Cap the lift so it never exceeds the natural heelRise range — prevents floating with small feet.
+  if (!inSwing) {
+    const dkf = Math.sqrt((ax - knee.x) ** 2 + (ay - knee.y) ** 2);
+    if (dkf > shin) {
+      ax = knee.x + (ax - knee.x) * shin / dkf;
+      ay = Math.max(knee.y + (ay - knee.y) * shin / dkf, GY - footSize * 0.55);
+    }
+  }
+
+  return { knee, ankle: { x: ax, y: ay } };
+}
+
+// ── Pose engine ───────────────────────────────────────────────────────────────
+// IK throughout — no mode switch, no discontinuities at transitions.
 function computePose(phase, cx, p, dir) {
 const {stepLength,kneeLift,footLift,torsoLen,legLen,armLen,headSize,footSize,legBend,armBend,
-bodyTilt,hipSway,leanAngle,headBob,headPendulum,armSwing,bounce} = p;
+bodyTilt,hipSway,shoulderWidth=0,leanAngle,headBob,headPendulum,armSwing,bounce} = p;
 const thigh=legLen*0.52, shin=legLen*0.48, uArm=armLen*0.48, fArm=armLen*0.52;
-// Hip height: derived from how far the stance foot is horizontally from the hip.
-// Use the actual planted foot X (not raw sin) so the body correctly rises/dips
-// with the real foot geometry rather than a phantom sine position.
-const fFootX = footPosX(phase,        stepLength, dir, cx);
-const bFootX = footPosX(phase+Math.PI, stepLength, dir, cx);
-const stanceDx = Math.min(Math.abs(fFootX-cx), Math.abs(bFootX-cx)); // nearest foot
+// Cap sl so the diagonal hip-to-foot distance never exceeds legLen (prevents IK snap).
+// With dip capped at legLen×0.28, the safe max sl = sqrt(0.28×1.72)×legLen ≈ 0.67×legLen.
+const dipCap = legLen * 0.28;
+const sl = Math.min(stepLength, Math.sqrt(dipCap * (2 * legLen - dipCap)) * 0.97);
+const fFootX = footPosX(phase,        sl, dir, cx);
+const bFootX = footPosX(phase+Math.PI, sl, dir, cx);
+const stanceDx = Math.min(Math.abs(fFootX-cx), Math.abs(bFootX-cx));
 const k = Math.min(0.98, stanceDx / Math.max(legLen, 1));
 const dip = Math.min(legLen*(1-Math.sqrt(1-k*k))*(1+bounce*0.10), legLen*0.28);
-const hipX = cx + Math.sin(phase)*hipSway*dir, hipY = GY-legLen+dip;
+const hipX = cx, hipY = GY-legLen+dip;
+// hipSway: each hip swings forward/back (x) and dips/rises (y) — visible tilt from side view.
+// Forward hip shifts ahead (+x) and drops slightly (+y); back hip does the opposite.
+// tiltDY adds the vertical component so hips and shoulders visibly counter-rotate.
+const rot   = Math.sin(phase) * dir;
+const tiltDY = rot * hipSway * 0.4;
+const fHipX = hipX + rot*hipSway, fHipY = hipY + tiltDY;
+const bHipX = hipX - rot*hipSway, bHipY = hipY - tiltDY;
 const tilt = Math.sin(phase)*(bodyTilt*Math.PI/180)*dir + leanAngle*Math.PI/180;
 const sX = hipX+Math.sin(tilt)*torsoLen, sY = hipY-Math.cos(tilt)*torsoLen;
 const hdX = sX+Math.sin(phase)*headPendulum*dir;
 const hdY = sY-headSize*1.4-Math.abs(Math.sin(phase*2))*headBob;
-const fAn={x:footPosX(phase,        stepLength,dir,cx), y:GY-Math.max(0,Math.cos(phase))*kneeLift         -heelRise(phase,        footSize)};
-const bAn={x:footPosX(phase+Math.PI,stepLength,dir,cx), y:GY-Math.max(0,Math.cos(phase+Math.PI))*kneeLift-heelRise(phase+Math.PI,footSize)};
-// legBend biases the knee forward/back by rotating it around the hip
-// while keeping the knee at exactly thigh-length from the hip.
-// Raw x-offset then renormalize → preserves leg proportions and character height.
-function biasKnee(k, bias) {
-if (!bias) return k;
-const dx=k.x+bias*dir-hipX, dy=k.y-hipY;
-const d=Math.sqrt(dx*dx+dy*dy)||thigh;
-return {x:hipX+dx/d*thigh, y:hipY+dy/d*thigh};
-}
-const fK=biasKnee(legKnee(hipX,hipY,fAn.x,fAn.y,thigh,shin,dir), legBend);
-fK.y=Math.min(fK.y,GY-1);
-const bK=biasKnee(legKnee(hipX,hipY,bAn.x,bAn.y,thigh,shin,dir), legBend);
-bK.y=Math.min(bK.y,GY-1);
-// footLift: during swing, extend the ankle along the thigh direction.
-// At footLift=1 the shin aligns with the thigh — leg fully straight at peak swing.
-// Normalise to shin length after blending so the shin never appears to shrink.
-if(footLift>0){
-  function liftFoot(an, k, swing) {
-    if(swing<=0) return;
-    const tdx=k.x-hipX, tdy=k.y-hipY, tl=Math.sqrt(tdx*tdx+tdy*tdy)||1;
-    const blend=footLift*swing;
-    const nx=an.x+(k.x+tdx/tl*shin-an.x)*blend;
-    const ny=an.y+(k.y+tdy/tl*shin-an.y)*blend;
-    const dl=Math.sqrt((nx-k.x)**2+(ny-k.y)**2)||shin;
-    an.x=k.x+(nx-k.x)/dl*shin;
-    an.y=k.y+(ny-k.y)/dl*shin;
-  }
-  liftFoot(fAn, fK, Math.max(0, Math.cos(phase)));
-  liftFoot(bAn, bK, Math.max(0, Math.cos(phase+Math.PI)));
-}
-const {elbow:fE,hand:fH}=armSetup(phase+Math.PI,sX,sY,uArm,fArm,armSwing,armBend,dir);
-const {elbow:bE,hand:bH}=armSetup(phase,sX,sY,uArm,fArm,armSwing,armBend,dir);
-// Ground is a hard wall — clamp all arm endpoints above GY
+// Shoulders counter-rotate: forward shoulder rises (+y reversed) and goes back (-x)
+const shouAmt = shoulderWidth;
+const fShoX = sX - rot*shouAmt, fShoY = sY + tiltDY*0.75;
+const bShoX = sX + rot*shouAmt, bShoY = sY - tiltDY*0.75;
+const sf = computeLeg(phase,        cx, fHipX, fHipY, thigh, shin, sl, kneeLift, footLift, legBend, footSize, legLen, dir);
+const sb = computeLeg(phase+Math.PI, cx, bHipX, bHipY, thigh, shin, sl, kneeLift, footLift, legBend, footSize, legLen, dir);
+const fAn=sf.ankle, fK=sf.knee, bAn=sb.ankle, bK=sb.knee;
+fK.y=Math.min(fK.y,GY-1); bK.y=Math.min(bK.y,GY-1);
+const {elbow:fE,hand:fH}=armSetup(phase+Math.PI,fShoX,fShoY,uArm,fArm,armSwing,armBend,dir);
+const {elbow:bE,hand:bH}=armSetup(phase,bShoX,bShoY,uArm,fArm,armSwing,armBend,dir);
 [fE,fH,bE,bH].forEach(pt=>{ pt.y=Math.min(pt.y,GY-2); });
-return {hipX,hipY,sX,sY,hdX,hdY,fAn,bAn,fK,bK,fE,fH,bE,bH};
+return {hipX,hipY,fHipX,bHipX,fHipY,bHipY,sX,sY,fShoX,fShoY,bShoX,bShoY,hdX,hdY,fAn,bAn,fK,bK,fE,fH,bE,bH};
 }
 
 // ── Draw figure from pose ─────────────────────────────────────────────────────
 function drawFigure(ctx, pose, p, col, dir, phase, am=1) {
-const {hipX,hipY,sX,sY,hdX,hdY,fAn,bAn,fK,bK,fE,fH,bE,bH} = pose;
+const {hipX,hipY,fHipX,bHipX,fHipY,bHipY,sX,sY,fShoX,fShoY,bShoX,bShoY,hdX,hdY,fAn,bAn,fK,bK,fE,fH,bE,bH} = pose;
 const {footSize:fs,heelToe:ht,legLen:ll,stepLength:sl,lineWidth:lw,headSize:hs} = p;
-ctx.save(); ctx.strokeStyle=col.stroke; ctx.fillStyle=col.fill;
+const sc = k => col.parts ? col.parts[k] : col.stroke;
+const haloColor = 'rgba(255,255,255,0.42)';
+const footHalo = col.parts && isDark(sc('feet')) ? haloColor : null;
+const headHalo = col.parts && isDark(sc('head')) ? haloColor : null;
+ctx.save(); ctx.fillStyle=col.fill;
 ctx.lineWidth=lw; ctx.lineCap='round'; ctx.lineJoin='round';
-ctx.globalAlpha=0.38*am;
-ctx.beginPath(); ctx.moveTo(hipX,hipY); ctx.lineTo(bK.x,bK.y); ctx.lineTo(bAn.x,bAn.y); ctx.stroke();
-if(fs>0) drawFoot(ctx,bAn.x,bAn.y,phase+Math.PI,fs,dir,lw,0.38*am,col.stroke,ll,sl,ht);
-ctx.globalAlpha=0.30*am;
-ctx.beginPath(); ctx.moveTo(sX,sY); ctx.lineTo(bE.x,bE.y); ctx.lineTo(bH.x,bH.y); ctx.stroke();
-ctx.globalAlpha=am;
+ctx.globalAlpha=0.38*am; ctx.strokeStyle=sc('legs');
+ctx.beginPath(); ctx.moveTo(bHipX,bHipY); ctx.lineTo(bK.x,bK.y); ctx.lineTo(bAn.x,bAn.y); ctx.stroke();
+if(fs>0) drawFoot(ctx,bAn.x,bAn.y,phase+Math.PI,fs,dir,lw,0.38*am,sc('feet'),ll,sl,ht,0,footHalo);
+ctx.globalAlpha=0.30*am; ctx.strokeStyle=sc('arms');
+ctx.beginPath(); ctx.moveTo(bShoX,bShoY); ctx.lineTo(bE.x,bE.y); ctx.lineTo(bH.x,bH.y); ctx.stroke();
+ctx.globalAlpha=am; ctx.strokeStyle=sc('body');
 ctx.beginPath(); ctx.moveTo(hipX,hipY); ctx.lineTo(sX,sY); ctx.stroke();
-ctx.beginPath(); ctx.moveTo(hipX,hipY); ctx.lineTo(fK.x,fK.y); ctx.lineTo(fAn.x,fAn.y); ctx.stroke();
-if(fs>0) drawFoot(ctx,fAn.x,fAn.y,phase,fs,dir,lw,am,col.stroke,ll,sl,ht);
-ctx.globalAlpha=0.88*am;
-ctx.beginPath(); ctx.moveTo(sX,sY); ctx.lineTo(fE.x,fE.y); ctx.lineTo(fH.x,fH.y); ctx.stroke();
+// Hip crossbar tilts forward-side down; shoulder crossbar tilts opposite — visible counter-rotation
+ctx.beginPath(); ctx.moveTo(bHipX,bHipY); ctx.lineTo(fHipX,fHipY); ctx.stroke();
+ctx.beginPath(); ctx.moveTo(bShoX,bShoY); ctx.lineTo(fShoX,fShoY); ctx.stroke();
+ctx.strokeStyle=sc('legs');
+ctx.beginPath(); ctx.moveTo(fHipX,fHipY); ctx.lineTo(fK.x,fK.y); ctx.lineTo(fAn.x,fAn.y); ctx.stroke();
+if(fs>0) drawFoot(ctx,fAn.x,fAn.y,phase,fs,dir,lw,am,sc('feet'),ll,sl,ht,0,footHalo);
+ctx.globalAlpha=0.88*am; ctx.strokeStyle=sc('arms');
+ctx.beginPath(); ctx.moveTo(fShoX,fShoY); ctx.lineTo(fE.x,fE.y); ctx.lineTo(fH.x,fH.y); ctx.stroke();
 ctx.globalAlpha=am;
+if(headHalo){ctx.strokeStyle=haloColor;ctx.lineWidth=lw*2.0;ctx.beginPath();ctx.arc(hdX,hdY,hs,0,TAU);ctx.stroke();ctx.lineWidth=lw;}
+ctx.strokeStyle=sc('head');
 ctx.beginPath(); ctx.arc(hdX,hdY,hs,0,TAU); ctx.stroke();
 ctx.globalAlpha=0.10*am; ctx.fill();
 ctx.restore();
 }
 
 // ── Colour palettes ───────────────────────────────────────────────────────────
-// Figure colors: ink and pencil tones designed for a light paper background
 const FIG_COLORS = [
 {name:'Ink',    stroke:'#2A2318',fill:'rgba(42,35,24,0.06)'},
 {name:'Pencil', stroke:'#5A5048',fill:'rgba(90,80,72,0.06)'},
 {name:'Blue',   stroke:'#3A6090',fill:'rgba(58,96,144,0.06)'},
-{name:'Red',    stroke:'#B84040',fill:'rgba(184,64,64,0.06)'},
+{name:'Purple', stroke:'#6B40A8',fill:'rgba(107,64,168,0.06)'},
 {name:'Sienna', stroke:'#8B5030',fill:'rgba(139,80,48,0.06)'},
 {name:'Forest', stroke:'#3D6B40',fill:'rgba(61,107,64,0.06)'},
+{name:'Rasta',  stroke:'#2E7D32',fill:'rgba(26,26,26,0.06)',
+ parts:{head:'#1A1A1A',feet:'#1A1A1A',legs:'#2E7D32',body:'#E8A020',arms:'#B91C1C'}},
+{name:'Matrix',  stroke:'#00CC33',fill:'rgba(0,204,51,0.08)'},
+{name:'Crimson', stroke:'#CC0055',fill:'rgba(204,0,85,0.08)'},
 ];
 // BG colors: paper and animation-desk tones. light:true = use dark ink overlay text.
 const BG_COLORS = [
@@ -248,6 +343,7 @@ const BG_COLORS = [
 {name:'Aged',      bg:'#EDE5C8',light:true},
 {name:'Blueprint', bg:'#D4DFE8',light:true},
 {name:'Dark',      bg:'#1A1815',light:false},
+{name:'Blush',     bg:'#FDE4F0',light:true},
 ];
 const KEY_POSES = [
 {key:'contact',label:'Contact',phase:TAU*0.25,color:'#3B82F6',fill:'rgba(59,130,246,0.08)'},
@@ -258,8 +354,10 @@ const KEY_POSES = [
 
 // ── Full frame render ─────────────────────────────────────────────────────────
 function renderFrame(canvas, rawPhase, cx, p, st, opts={}) {
-const {forExport=false,transparent=false,keyPoseState=null,onion=null,tickOffset=0} = opts;
+const {forExport=false,transparent=false,keyPoseState=null,onion=null} = opts;
 const ctx = canvas.getContext('2d');
+const dpr = canvas.width / W;
+ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 const col = FIG_COLORS[st.figureIdx], bg = BG_COLORS[st.bgIdx];
 const dir = st.flipDir ? -1 : 1, light = bg.light !== false;
 const N = cycLen(p.fps, p.speed), snapStep = TAU/N*p.animOn;
@@ -282,12 +380,29 @@ ctx.setLineDash([]);
 ctx.globalAlpha=1; ctx.strokeStyle=light?'rgba(0,0,0,0.28)':'rgba(255,255,255,0.2)'; ctx.lineWidth=1.5;
 ctx.beginPath();ctx.moveTo(0,GY);ctx.lineTo(W,GY);ctx.stroke();
 if(!forExport){
-const sp=Math.max(6,p.stepLength*2); ctx.strokeStyle=light?'rgba(0,0,0,0.22)':'rgba(255,255,255,0.18)'; ctx.lineWidth=1.5;
-if(st.loco==='walk'){
-for(let x=sp*0.5;x<W+sp;x+=sp){ctx.beginPath();ctx.moveTo(x,GY);ctx.lineTo(x,GY+8);ctx.stroke();}
+const tc=light?'rgba(0,0,0,0.22)':'rgba(255,255,255,0.18)';
+if(st.tickMode==='ruler'){
+  // Ruler: 10 minor ticks per metre, every 10th tick is a major mark.
+  // 1 metre ≈ legLen/0.8 px (floor-to-hip ≈ 0.8 m in character scale).
+  const minorSp=Math.max(3,Math.round(p.legLen/8));  // legLen/0.8 / 10 = legLen/8
+  ctx.strokeStyle=tc;
+  // Centre a major tick at W/2 (ruler origin = character start position).
+  const iStart=Math.floor(-W/2/minorSp)-1;
+  const iEnd=Math.ceil(W/2/minorSp)+1;
+  for(let i=iStart;i<=iEnd;i++){
+    const x=W/2+i*minorSp;
+    if(x<-minorSp||x>W+minorSp) continue;
+    const isMajor=i%10===0;
+    ctx.lineWidth=isMajor?1.5:0.8;
+    ctx.beginPath();ctx.moveTo(x,GY);ctx.lineTo(x,GY+(isMajor?10:4));ctx.stroke();
+  }
 } else {
-const off=((tickOffset%sp)+sp)%sp;
-for(let x=off-sp;x<W+sp;x+=sp){ctx.beginPath();ctx.moveTo(x,GY);ctx.lineTo(x,GY+8);ctx.stroke();}
+  const sl=p.stepLength;
+  const sp=Math.max(6, st.loco==='walk' ? sl*2 : sl);
+  const rawOff=st.loco==='walk' ? W/2 : W/2 + sl*dir*(0.5 - phase/Math.PI);
+  const off=((rawOff%sp)+sp)%sp;
+  ctx.strokeStyle=tc; ctx.lineWidth=1.5;
+  for(let x=off-sp;x<W+sp;x+=sp){ctx.beginPath();ctx.moveTo(x,GY);ctx.lineTo(x,GY+8);ctx.stroke();}
 }
 }
 if(st.showShadow){
@@ -330,9 +445,10 @@ const frameN=Math.min(Math.floor(norm/TAU*N)+1,N);
 const totalDrw=Math.ceil(N/p.animOn), drwN=Math.min(Math.ceil(frameN/p.animOn),totalDrw);
 const l1=p.animOn===1?`Fr ${frameN} / ${N}`:`Fr ${frameN} / ${N}  (Drw ${drwN} / ${totalDrw})`;
 const l2=`${N} fr · ${(N/p.fps).toFixed(2)}s @ ${p.fps}fps`;
+const l3=`${(p.stepLength*p.speed*5/24).toFixed(1)} km/h`;
 ctx.save(); ctx.font='bold 10px Courier New'; const tw1=ctx.measureText(l1).width;
-ctx.font='9px Courier New'; const tw2=ctx.measureText(l2).width;
-const bw=Math.max(tw1,tw2)+16,bh=32,bx=W-bw-6,by=6;
+ctx.font='9px Courier New'; const tw2=ctx.measureText(l2).width; const tw3=ctx.measureText(l3).width;
+const bw=Math.max(tw1,tw2,tw3)+16,bh=44,bx=W-bw-6,by=6;
 ctx.fillStyle=forExport?(transparent?'rgba(0,0,0,0.55)':light?'rgba(244,239,228,0.94)':'rgba(18,16,14,0.88)')
                        :light?'rgba(244,239,228,0.94)':'rgba(18,16,14,0.88)';
 ctx.beginPath();ctx.roundRect(bx,by,bw,bh,3);ctx.fill();
@@ -341,6 +457,7 @@ ctx.textAlign='left'; ctx.textBaseline='top';
 ctx.font='bold 10px Courier New'; ctx.fillText(l1,bx+8,by+5);
 ctx.fillStyle=forExport?(transparent?'rgba(255,255,255,0.75)':light?'#6B5E4A':'#8A7C6A'):light?'#6B5E4A':'#8A7C6A';
 ctx.font='9px Courier New'; ctx.fillText(l2,bx+8,by+19);
+ctx.fillText(l3,bx+8,by+31);
 ctx.restore();
 }
 }
@@ -402,28 +519,29 @@ ctx.fillText('● drawing  ○ held',cw-4,ch-2);
 // ── Slider definitions per tab ────────────────────────────────────────────────
 const TAB_SLIDERS = {
 body:[
-{key:'legLen',   label:'Leg Length',  min:35,  max:110,step:1,   unit:'px'},
-{key:'armLen',   label:'Arm Length',  min:20,  max:80, step:1,   unit:'px'},
-{key:'torsoLen', label:'Torso',       min:20,  max:80, step:1,   unit:'px'},
-{key:'headSize', label:'Head Size',   min:8,   max:30, step:1,   unit:'px'},
-{key:'footSize', label:'Foot Size',   min:0,   max:22, step:1,   unit:'px'},
-{key:'lineWidth',label:'Line Weight', min:1,   max:8,  step:0.5, unit:'px'},
-{key:'legBend',  label:'Leg Bend',    min:-15, max:28, step:1,   unit:'px'},
-{key:'armBend',  label:'Arm Bend',    min:0,   max:60, step:1,   unit:'°'},
+{key:'legLen',        label:'Leg Length',     min:35,  max:110,step:1,   unit:'px'},
+{key:'armLen',        label:'Arm Length',     min:20,  max:80, step:1,   unit:'px'},
+{key:'torsoLen',      label:'Torso',          min:20,  max:80, step:1,   unit:'px'},
+{key:'headSize',      label:'Head Size',      min:8,   max:30, step:1,   unit:'px'},
+{key:'footSize',      label:'Foot Size',      min:0,   max:22, step:1,   unit:'px'},
+{key:'lineWidth',     label:'Line Weight',    min:1,   max:8,  step:0.5, unit:'px'},
+{key:'hipSway',       label:'Hip Width',      min:0,   max:16, step:0.5, unit:'px'},
+{key:'shoulderWidth', label:'Shoulder Width', min:0,   max:16, step:0.5, unit:'px'},
 ],
 walk:[
 {key:'speed',     label:'Speed',       min:0.2,max:3,  step:0.05,unit:'×'},
-{key:'stepLength',label:'Step Length', min:5,  max:55, step:1,   unit:'px'},
-{key:'kneeLift',  label:'Knee Lift',   min:0,  max:35, step:1,   unit:'px'},
+{key:'stepLength',label:'Step Length', min:0,  max:55, step:1,   unit:'px', computeMax:p=>Math.floor(p.legLen*0.97)},
+{key:'kneeLift',  label:'Knee Lift',   min:0,  max:100,step:1,   unit:'%'},
 {key:'footLift',  label:'Foot Lift',   min:0,  max:1,  step:0.05,unit:''},
 {key:'bounce',    label:'Bounce',      min:0,  max:20, step:0.5, unit:''},
 {key:'armSwing',  label:'Arm Swing',   min:0,  max:50, step:1,   unit:'px'},
-{key:'heelToe',   label:'Heel/Toe',    min:-1, max:1,  step:0.05,unit:''},
+{key:'heelToe',   label:'Toe/Heel',    min:-1, max:1,  step:0.05,unit:''},
 ],
 style:[
 {key:'leanAngle',    label:'Lean',          min:-25,max:25, step:1,  unit:'°'},
 {key:'bodyTilt',     label:'Body Tilt',      min:0,  max:22, step:0.5,unit:'°'},
-{key:'hipSway',      label:'Hip Sway',       min:0,  max:14, step:0.5,unit:'px'},
+{key:'legBend',      label:'Leg Bend',       min:-15,max:28, step:1,  unit:'px'},
+{key:'armBend',      label:'Arm Bend',       min:0,  max:60, step:1,  unit:'°'},
 {key:'headBob',      label:'Head Bob',       min:0,  max:14, step:0.5,unit:'px'},
 {key:'headPendulum', label:'Head Swing',     min:0,  max:18, step:0.5,unit:'px'},
 {key:'ghostTrail',   label:'Ghost Trail',    min:0,  max:6,  step:1,  unit:''},
@@ -432,23 +550,23 @@ style:[
 
 // ── System presets ────────────────────────────────────────────────────────────
 const SYSTEM_PRESETS = {
-Normal:  {speed:1,   bounce:6,  armSwing:20,stepLength:24,kneeLift:14,torsoLen:44,legLen:68,armLen:46,headSize:14,lineWidth:3,  legBend:4,  armBend:15,leanAngle:0, bodyTilt:0, hipSway:0, headBob:2,headPendulum:2, heelToe:0.8, feel:0.5},
-March:   {speed:1.3, bounce:13, armSwing:36,stepLength:20,kneeLift:32,torsoLen:46,legLen:68,armLen:46,headSize:14,lineWidth:3,  legBend:5,  armBend:30,leanAngle:3, bodyTilt:6, hipSway:0, headBob:4,headPendulum:0, heelToe:1.0, feel:0.6},
-Sneak:   {speed:0.55,bounce:3,  armSwing:10,stepLength:14,kneeLift:24,torsoLen:36,legLen:68,armLen:46,headSize:14,lineWidth:3,  legBend:18, armBend:40,leanAngle:20,bodyTilt:5, hipSway:2, headBob:0,headPendulum:7, heelToe:-0.7,feel:0.3},
-Strut:   {speed:0.75,bounce:18, armSwing:28,stepLength:32,kneeLift:6, torsoLen:44,legLen:68,armLen:46,headSize:14,lineWidth:3,  legBend:4,  armBend:20,leanAngle:-6,bodyTilt:11,hipSway:11,headBob:5,headPendulum:6, heelToe:0.4, feel:0.7},
-Robot:   {speed:0.7, bounce:0,  armSwing:20,stepLength:22,kneeLift:24,torsoLen:44,legLen:68,armLen:46,headSize:14,lineWidth:2,  legBend:0,  armBend:0, leanAngle:0, bodyTilt:0, hipSway:0, headBob:0,headPendulum:0, heelToe:1.0, feel:0.0},
-Toddler: {speed:1.1, bounce:16, armSwing:14,stepLength:14,kneeLift:18,torsoLen:30,legLen:48,armLen:32,headSize:20,lineWidth:3,  legBend:8,  armBend:28,leanAngle:5, bodyTilt:8, hipSway:6, headBob:6,headPendulum:4, heelToe:0.2, feel:0.5},
+Normal:  {speed:2.4, bounce:4,  armSwing:8, stepLength:24,kneeLift:25,torsoLen:45,legLen:70,armLen:54,headSize:14,footSize:10,lineWidth:3,legBend:4,  armBend:15,leanAngle:2, bodyTilt:1, hipSway:1,  shoulderWidth:2,  headBob:0,headPendulum:1, footLift:0.1,heelToe:0.8, feel:0.5},
+March:   {speed:1.3, bounce:13, armSwing:36,stepLength:20,kneeLift:55,torsoLen:46,legLen:68,armLen:46,headSize:14,lineWidth:3,  legBend:5,  armBend:30,leanAngle:3, bodyTilt:6, hipSway:0,  shoulderWidth:0,  headBob:4,headPendulum:0, heelToe:1.0, feel:0.6},
+Sneak:   {speed:0.55,bounce:3,  armSwing:10,stepLength:14,kneeLift:35,torsoLen:36,legLen:68,armLen:46,headSize:14,lineWidth:3,  legBend:18, armBend:40,leanAngle:20,bodyTilt:5, hipSway:2,  shoulderWidth:2,  headBob:0,headPendulum:7, heelToe:-0.7,feel:0.3},
+Strut:   {speed:0.75,bounce:18, armSwing:28,stepLength:32,kneeLift:10,torsoLen:44,legLen:68,armLen:46,headSize:14,lineWidth:3,  legBend:4,  armBend:20,leanAngle:-6,bodyTilt:11,hipSway:11, shoulderWidth:8,  headBob:5,headPendulum:6, heelToe:0.4, feel:0.7},
+Robot:   {speed:0.7, bounce:0,  armSwing:20,stepLength:22,kneeLift:35,torsoLen:44,legLen:68,armLen:46,headSize:14,lineWidth:2,  legBend:0,  armBend:0, leanAngle:0, bodyTilt:0, hipSway:0,  shoulderWidth:0,  headBob:0,headPendulum:0, heelToe:1.0, feel:0.0},
+Toddler: {speed:1.1, bounce:16, armSwing:14,stepLength:14,kneeLift:25,torsoLen:30,legLen:48,armLen:32,headSize:20,lineWidth:3,  legBend:8,  armBend:28,leanAngle:5, bodyTilt:8, hipSway:6,  shoulderWidth:5,  headBob:6,headPendulum:4, heelToe:0.2, feel:0.5},
 };
 
 // ── Defaults ──────────────────────────────────────────────────────────────────
 const DEF_PARAMS = {
 legLen:68,armLen:46,torsoLen:44,headSize:14,footSize:12,lineWidth:3,
 legBend:4,armBend:15,   // legBend:4 gives the knee a natural forward lean
-speed:1,stepLength:24,kneeLift:14,footLift:0,bounce:6,armSwing:20,heelToe:0.8,
-leanAngle:0,bodyTilt:0,hipSway:0,headBob:2,headPendulum:2,ghostTrail:0,
+speed:1,stepLength:24,kneeLift:20,footLift:0,bounce:6,armSwing:20,heelToe:0.8,
+leanAngle:0,bodyTilt:0,hipSway:0,shoulderWidth:0,headBob:2,headPendulum:2,ghostTrail:0,
 fps:24,animOn:1,feel:0.5,
 };
-const DEF_STYLE = {figureIdx:0,bgIdx:0,showGrid:false,showShadow:false,footDots:false,flipDir:false,loco:'place'};
+const DEF_STYLE = {figureIdx:0,bgIdx:0,showGrid:false,showShadow:false,footDots:false,flipDir:false,loco:'place',themeIdx:0,tickMode:'step'};
 // figureIdx:0 = Ink (dark, readable on paper)   bgIdx:0 = Paper (warm cream)
 
 // ── Storage helpers ───────────────────────────────────────────────────────────
@@ -470,15 +588,82 @@ return th.toDataURL('image/jpeg',0.75);
 } catch{return null;}
 }
 
-// ── Theme tokens ──────────────────────────────────────────────────────────────
-const T = {
-paper:   '#F4EFE4', paperDk:'#E8E2D2', paperLt:'#FAF8F3',
-border:  '#C8B99A', borderLt:'#DDD5C0',
-ink:     '#2A2318', ink2:'#574A38', ink3:'#7A6C5C', ink4:'#9E9080',
-blue:    '#4A6FA5', // blue pencil -- active states
-red:     '#B84040', // red pencil -- delete/danger
-amber:   '#C07830', // warm amber -- secondary accent
-};
+// ── Theme palettes ────────────────────────────────────────────────────────────
+// Each theme carries its own identity (title, fonts) and auto-applies canvas/figure.
+const THEMES = [
+{ // 0 — Silly Walks Studio (default)
+  title:"Seb's Silly Walks Studio",
+  subtitle:"ITS JUST A 2D ANIMATION REFERENCE TOOL",
+  titleFont:"'Rye', 'Georgia', serif",
+  titleSize:19,
+  subtitleFont:"'Courier New', monospace",
+  tabIcons:{body:'⊙',walk:'≋',style:'✦',timing:'◷',presets:'⊟'},
+  defaultBgIdx:0, defaultFigIdx:0,
+  paper:'#F4EFE4',paperDk:'#E8E2D2',paperLt:'#FAF8F3',
+  border:'#C8B99A',borderLt:'#DDD5C0',
+  ink:'#2A2318',ink2:'#574A38',ink3:'#7A6C5C',ink4:'#9E9080',
+  blue:'#4A6FA5',red:'#B84040',amber:'#C07830',
+},
+{ // 1 — NeuroPrancer Nexus (cyberpunk)
+  title:"Seb's NeuroPrancer Nexus",
+  subtitle:"ITS JUST A GLITCH IN THE WALKCYCLE",
+  titleFont:"'Orbitron', 'Courier New', monospace",
+  titleSize:13,
+  subtitleFont:"'Courier New', monospace",
+  tabIcons:{body:'⬡',walk:'⊳',style:'⌬',timing:'⧗',presets:'≣'},
+  defaultBgIdx:4, defaultFigIdx:7,  // Dark canvas, Matrix green figure
+  paper:'#080D08',paperDk:'#050905',paperLt:'#0C140C',
+  border:'#1A4A1A',borderLt:'#2A6A2A',
+  ink:'#00FF41',ink2:'#00CC33',ink3:'#008822',ink4:'#004A14',
+  blue:'#00FFCC',red:'#FF0044',amber:'#CCFF00',
+},
+{ // 2 — Sassy Sashay Salon
+  title:"Seb's Sassy Sashay Salon",
+  subtitle:"ITS JUST A SLUTTY STRUT CLUB",
+  titleFont:"'Righteous', cursive",
+  titleSize:18,
+  subtitleFont:"'Courier New', monospace",
+  tabIcons:{body:'💄',walk:'👠',style:'🍸',timing:'💃',presets:'💅'},
+  defaultBgIdx:5, defaultFigIdx:8,  // Blush canvas, Crimson figure
+  paper:'#FFF0F8',paperDk:'#FFD6EC',paperLt:'#FFF8FC',
+  border:'#E8509A',borderLt:'#F4A0C8',
+  ink:'#880030',ink2:'#CC0055',ink3:'#E0609A',ink4:'#F0A0C0',
+  blue:'#CC0066',red:'#FF0044',amber:'#FF8800',
+},
+];
+function ha(hex, a) { // hex + alpha → rgba string (for canvas and computed borders)
+const [r,g,b]=hex.match(/\w\w/g).map(x=>parseInt(x,16)); return `rgba(${r},${g},${b},${a})`;
+}
+
+// ── SVG theme icons — each carries its own theme colours so they preview correctly ──
+const IconThemeDefault = () => (
+<svg width="22" height="22" viewBox="0 0 24 24">
+  <circle cx="12" cy="12" r="11" fill="#F4EFE4" stroke="#C8B99A" strokeWidth="1"/>
+  <g fill="none" stroke="#2A2318" strokeWidth="1.6" strokeLinecap="round">
+    <circle cx="12" cy="12" r="3.5"/>
+    <line x1="12" y1="3.5" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="20.5"/>
+    <line x1="4.9" y1="4.9" x2="6.7" y2="6.7"/><line x1="17.3" y1="17.3" x2="19.1" y2="19.1"/>
+    <line x1="3.5" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="20.5" y2="12"/>
+    <line x1="4.9" y1="19.1" x2="6.7" y2="17.3"/><line x1="17.3" y1="6.7" x2="19.1" y2="4.9"/>
+  </g>
+</svg>);
+const IconThemeCyber = () => (
+<svg width="22" height="22" viewBox="0 0 24 24">
+  <circle cx="12" cy="12" r="11" fill="#080D08" stroke="#1A4A1A" strokeWidth="1"/>
+  <g fill="none" stroke="#00FF41" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 5.5a5.5 5.5 0 0 0-5.5 5.5c0 2 1 3.8 2.5 4.8V18h6v-2.2c1.5-1 2.5-2.8 2.5-4.8A5.5 5.5 0 0 0 12 5.5z"/>
+    <line x1="9.5" y1="18" x2="14.5" y2="18"/>
+    <circle cx="10" cy="11.5" r="1.2" fill="#00FF41"/>
+    <circle cx="14" cy="11.5" r="1.2" fill="#00FF41"/>
+  </g>
+</svg>);
+const IconThemeSassy = () => (
+<svg width="22" height="22" viewBox="0 0 24 24">
+  <circle cx="12" cy="12" r="11" fill="#FFF0F8" stroke="#E8509A" strokeWidth="1"/>
+  <path d="M12 18.5l-6.5-6.5a4.2 4.2 0 0 1 6.5-5.2 4.2 4.2 0 0 1 6.5 5.2z" fill="#CC0055" stroke="none"/>
+  <path d="M8 17.5c1-1.5 2.5-1.5 4-1 1.5.5 3 .5 4-1" fill="none" stroke="#FF85AF" strokeWidth="0.8" strokeLinecap="round"/>
+</svg>);
+const THEME_ICONS = [<IconThemeDefault/>, <IconThemeCyber/>, <IconThemeSassy/>];
 
 // ── Shared UI helpers ─────────────────────────────────────────────────────────
 function SliderGrid({sliders, params, onChange}) {
@@ -487,13 +672,12 @@ return (
 {sliders.map(s=>(
 <div key={s.key} style={{display:'flex',flexDirection:'column',gap:2}}>
 <div style={{display:'flex',justifyContent:'space-between',fontSize:10,
-letterSpacing:'0.07em',color:T.ink2}}>
+letterSpacing:'0.07em',color:'var(--ink2)'}}>
 <span style={{textTransform:'uppercase'}}>{s.label}</span>
-<span style={{color:T.ink3}}>{params[s.key]}{s.unit}</span>
+<span style={{color:'var(--ink3)'}}>{params[s.key]}{s.unit}</span>
 </div>
-<input type="range" min={s.min} max={s.max} step={s.step} value={params[s.key]}
-onChange={e=>onChange(s.key,+e.target.value)}
-style={{accentColor:T.blue,cursor:'pointer'}}/>
+<input type="range" min={s.min} max={s.computeMax?s.computeMax(params):s.max} step={s.step} value={params[s.key]}
+onChange={e=>onChange(s.key,+e.target.value)}/>
 </div>
 ))}
 </div>
@@ -507,7 +691,6 @@ const chartRef    = useRef(null);
 const animRef     = useRef(null);
 const phaseRef    = useRef(0);
 const walkXRef    = useRef(W/2);
-const tickRef     = useRef(0);
 const lastTRef    = useRef(null);
 const live        = useRef({});
 const scrubRef    = useRef(null);
@@ -525,6 +708,7 @@ const [exporting,   setExporting]   = useState(false);
 const [expPct,      setExpPct]      = useState(0);
 const [expRes,      setExpRes]      = useState(1);
 const [expTrans,    setExpTrans]    = useState(false);
+const [expAspect,   setExpAspect]   = useState('3:2');
 const [downloadReady, setDownloadReady] = useState(null);
 const [userPresets,   setUserPresets]   = useState([]);
 const [savingPre,     setSavingPre]     = useState(false);
@@ -535,8 +719,17 @@ const [importErr,     setImportErr]     = useState(false);
 const [copyMsg,       setCopyMsg]       = useState('');
 
 live.current = {params,style,playback,keyPoses,onionOn,onionCount};
-const setP  = (key,val) => { setActivePreset(null); setParams(p=>({...p,[key]:val})); };
+const setP  = (key,val) => { setActivePreset(null); setParams(p=>{
+  const next={...p,[key]:val};
+  if(key==='legLen') next.stepLength=Math.min(next.stepLength, Math.floor(val*0.97));
+  return next;
+}); };
 const setSt = (key,val) => setStyle(s=>({...s,[key]:val}));
+
+const T = THEMES[style.themeIdx ?? 0];
+useEffect(()=>{
+  document.documentElement.dataset.theme = ['light','dark','pink'][style.themeIdx ?? 0];
+},[style.themeIdx]);
 
 // Load saved presets + read URL hash
 useEffect(()=>{
@@ -585,10 +778,10 @@ if(st.loco==='walk'){
 walkXRef.current+=sign*dt*pps*dir;
 if(walkXRef.current>W+90) walkXRef.current=-90;
 if(walkXRef.current<-90)  walkXRef.current=W+90;
-} else { walkXRef.current=W/2; tickRef.current-=sign*dt*pps*dir; }
+} else { walkXRef.current=W/2; }
 } else if(st.loco!=='walk') walkXRef.current=W/2;
 const cx=st.loco==='walk'?walkXRef.current:W/2;
-renderFrame(canvas,phaseRef.current,cx,p,st,{keyPoseState:kp,onion:{on:oo,count:oc},tickOffset:tickRef.current});
+renderFrame(canvas,phaseRef.current,cx,p,st,{keyPoseState:kp,onion:{on:oo,count:oc}});
 const N=cycLen(p.fps,p.speed),snap=TAU/N*p.animOn;
 const frac=((Math.round(phaseRef.current/snap)*snap%TAU)+TAU)%TAU/TAU;
 if(scrubRef.current) scrubRef.current.style.left=`${frac*100}%`;
@@ -627,6 +820,7 @@ const handleDelPre=async id=>{await store.del(`wcs:preset:${id}`);setUserPresets
 
 // Export
 const canvasToBlob=canvas=>new Promise(res=>canvas.toBlob(res,'image/png'));
+const getAspect=()=>EXP_ASPECTS.find(a=>a.key===expAspect)||EXP_ASPECTS[0];
 const doExport=async mode=>{
 if(downloadReady){URL.revokeObjectURL(downloadReady.url);setDownloadReady(null);}
 setExporting(true);
@@ -635,39 +829,68 @@ const N=cycLen(p.fps,p.speed),dc=Math.ceil(N/p.animOn),res=expRes;
 const baseName=(activePreset||'walk').toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'');
 const off=document.createElement('canvas');off.width=W*res;off.height=H*res;
 const oc=off.getContext('2d');
+const bg=BG_COLORS[st.bgIdx];
 let blob,filename;
 if(mode==='spritesheet'){
+// Spritesheet always uses native 3:2 canvas dimensions
 const cols=Math.ceil(Math.sqrt(dc)), rows=Math.ceil(dc/cols);
 const sh=document.createElement('canvas');sh.width=W*res*cols;sh.height=H*res*rows;
 const sc=sh.getContext('2d');
 for(let d=0;d<dc;d++){
-const rp=d*p.animOn*TAU/N; oc.save();if(res>1)oc.scale(res,res);
+const rp=d*p.animOn*TAU/N;
 renderFrame(off,rp,W/2,p,st,{forExport:true,transparent:expTrans});
-oc.restore();
 sc.drawImage(off,(d%cols)*W*res,Math.floor(d/cols)*H*res);
 setExpPct(Math.round((d+1)/dc*100));await new Promise(r=>setTimeout(r,15));
 }
 blob=await canvasToBlob(sh);
 filename=`${baseName}_spritesheet_${cols}x${rows}_${dc}drw.png`;
 } else {
+const {w:aw,h:ah}=getAspect();
 const zip=new JSZip();
 for(let d=0;d<dc;d++){
-const rp=d*p.animOn*TAU/N; oc.save();if(res>1)oc.scale(res,res);
+const rp=d*p.animOn*TAU/N;
 renderFrame(off,rp,W/2,p,st,{forExport:true,transparent:expTrans});
-oc.restore();
-zip.file(`walk_${p.animOn>1?'drw':'fr'}_${String(d+1).padStart(3,'0')}.png`, await canvasToBlob(off));
+const frame=compositeFrame(off,aw,ah,bg.bg,res);
+zip.file(`walk_${p.animOn>1?'drw':'fr'}_${String(d+1).padStart(3,'0')}.png`, await canvasToBlob(frame));
 setExpPct(Math.round((d+1)/dc*50));await new Promise(r=>setTimeout(r,15));
 }
 blob=await zip.generateAsync({type:'blob'},meta=>{setExpPct(50+Math.round(meta.percent/2));});
-filename=`${baseName}_sequence_${dc}${p.animOn>1?'drw':'fr'}.zip`;
+filename=`${baseName}_sequence_${aw*res}x${ah*res}_${dc}${p.animOn>1?'drw':'fr'}.zip`;
 }
+setExporting(false);setExpPct(0);
+setDownloadReady({url:URL.createObjectURL(blob),filename});
+};
+const doGifExport=async()=>{
+if(downloadReady){URL.revokeObjectURL(downloadReady.url);setDownloadReady(null);}
+setExporting(true);
+const {params:p,style:st}=live.current;
+const N=cycLen(p.fps,p.speed),dc=Math.ceil(N/p.animOn),res=expRes;
+const {w:aw,h:ah}=getAspect();
+const ew=aw*res, eh=ah*res;
+const bg=BG_COLORS[st.bgIdx];
+const baseName=(activePreset||'walk').toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'');
+const off=document.createElement('canvas');off.width=W*res;off.height=H*res;
+const gif=GIFEncoder();
+const delay=Math.round(1000/p.fps*p.animOn);
+for(let d=0;d<dc;d++){
+const rp=d*p.animOn*TAU/N;
+renderFrame(off,rp,W/2,p,st,{forExport:true,transparent:false});
+const frame=compositeFrame(off,aw,ah,bg.bg,res);
+const {data}=frame.getContext('2d').getImageData(0,0,ew,eh);
+const palette=quantize(data,256);
+gif.writeFrame(applyPalette(data,palette),ew,eh,{palette,delay});
+setExpPct(Math.round((d+1)/dc*100));await new Promise(r=>setTimeout(r,10));
+}
+gif.finish();
+const blob=new Blob([gif.bytes()],{type:'image/gif'});
+const filename=`${baseName}_${ew}x${eh}.gif`;
 setExporting(false);setExpPct(0);
 setDownloadReady({url:URL.createObjectURL(blob),filename});
 };
 
 // ── Style helpers (paper & ink theme) ───────────────────────────────────────
 const tgl=(on,danger=false)=>({
-background:on?(danger?'rgba(184,64,64,0.10)':'rgba(74,111,165,0.12)'):'transparent',
+background:on?(danger?ha(T.red,0.10):ha(T.blue,0.12)):'transparent',
 border:`1px solid ${on?(danger?T.red:T.blue):T.border}`,
 color:on?(danger?T.red:T.blue):T.ink2,
 borderRadius:3,padding:'3px 8px',cursor:'pointer',
@@ -692,25 +915,46 @@ return (
 <div style={{fontFamily:"'Courier New',monospace",background:T.paper,color:T.ink,
 display:'flex',flexDirection:'column',width:W,
 border:`1px solid ${T.border}`,borderRadius:4,overflow:'hidden',
-boxShadow:'0 4px 16px rgba(42,35,24,0.15)'}}>
+boxShadow:`0 4px 16px ${ha(T.ink,0.18)}`,
+'--blue':T.blue,'--red':T.red,'--amber':T.amber,
+'--ink':T.ink,'--ink2':T.ink2,'--ink3':T.ink3,'--ink4':T.ink4,
+'--paper':T.paper,'--paper-dk':T.paperDk,'--paper-lt':T.paperLt,
+'--border':T.border,'--border-lt':T.borderLt}}>
 
   {/* Header */}
   <div style={{padding:'8px 16px 7px',background:T.paperDk,borderBottom:`1px solid ${T.border}`,
-               display:'flex',flexDirection:'column',alignItems:'center',gap:2}}>
-    <span style={{fontFamily:"'Rye', 'Georgia', serif",fontSize:19,color:'#0D0A05',
-                  letterSpacing:'0.04em',lineHeight:1,
-                  textShadow:`1px 1px 0 ${T.border}, 0 0 1px rgba(42,35,24,0.15)`}}>
-      Seb's Silly Walks Studio
-    </span>
-    <span style={{fontFamily:"'Courier New', monospace",fontSize:8,color:T.ink2,
-                  letterSpacing:'0.2em',textTransform:'uppercase'}}>
-      2D animation reference tool
-    </span>
+               display:'flex',alignItems:'center'}}>
+    <div style={{display:'flex',flexDirection:'column',alignItems:'flex-start',gap:2}}>
+      <span style={{fontFamily:T.titleFont,fontSize:T.titleSize,color:T.ink,
+                    letterSpacing:'0.04em',lineHeight:1,
+                    textShadow:`1px 1px 0 ${T.border}`}}>
+        {T.title}
+      </span>
+      <span style={{fontFamily:T.subtitleFont,fontSize:8,color:T.ink2,
+                    letterSpacing:'0.2em',textTransform:'uppercase'}}>
+        {T.subtitle}
+      </span>
+    </div>
+    <div style={{flex:1,display:'flex',justifyContent:'flex-end',gap:5}}>
+      {THEMES.map((th,idx)=>{
+        const active=(style.themeIdx??0)===idx;
+        return(
+        <button key={idx} title={th.title}
+          onClick={()=>{setSt('themeIdx',idx);setSt('bgIdx',th.defaultBgIdx);setSt('figureIdx',th.defaultFigIdx);}}
+          style={{background:active?T.borderLt:'transparent',
+                  border:`1.5px solid ${active?T.border:T.borderLt}`,
+                  borderRadius:'50%',width:30,height:30,padding:0,cursor:'pointer',
+                  display:'flex',alignItems:'center',justifyContent:'center',
+                  transition:'all 0.15s',boxShadow:active?`0 0 6px ${ha(T.ink,0.25)}`:'none'}}>
+          {THEME_ICONS[idx]}
+        </button>);
+      })}
+    </div>
   </div>
 
   {/* Canvas */}
-  <div style={{borderBottom:`1px solid ${T.border}`,boxShadow:`inset 0 1px 3px rgba(42,35,24,0.06)`}}>
-    <canvas ref={canvasRef} width={W} height={H} style={{display:'block'}}/>
+  <div style={{borderBottom:`1px solid ${T.border}`,boxShadow:`inset 0 1px 3px ${ha(T.ink,0.06)}`}}>
+    <canvas ref={canvasRef} width={W*DPR} height={H*DPR} style={{display:'block',width:W,height:H}}/>
   </div>
 
   {/* Display toolbar */}
@@ -720,8 +964,15 @@ boxShadow:'0 4px 16px rgba(42,35,24,0.15)'}}>
       <span style={{fontSize:8,color:T.ink3,letterSpacing:'0.1em',textTransform:'uppercase',marginRight:2}}>Fig</span>
       {FIG_COLORS.map((c,i)=>(
         <button key={c.name} onClick={()=>setSt('figureIdx',i)} title={c.name}
-          style={{width:14,height:14,borderRadius:'50%',background:c.stroke,cursor:'pointer',padding:0,
-                  border:i===style.figureIdx?`2px solid ${T.blue}`:`2px solid ${T.borderLt}`}}/>
+          style={{
+            width: c.parts ? 20 : 14,
+            height: 14,
+            borderRadius: c.parts ? 2 : '50%',
+            background: c.parts
+              ? 'linear-gradient(to bottom,#2E7D32 33%,#E8A020 33% 66%,#B91C1C 66%)'
+              : c.stroke,
+            cursor:'pointer',padding:0,
+            border:i===style.figureIdx?`2px solid ${T.blue}`:`2px solid ${T.borderLt}`}}/>
       ))}
     </div>
     <div style={{width:1,height:14,background:T.border}}/>
@@ -760,6 +1011,8 @@ boxShadow:'0 4px 16px rgba(42,35,24,0.15)'}}>
       <span style={{fontSize:10,color:T.ink3,minWidth:12,textAlign:'center'}}>{onionCount}</span>
       <button onClick={()=>setOnionCount(v=>Math.min(5,v+1))} style={{...tgl(false),padding:'2px 6px'}}>+</button>
     </>}
+    <button onClick={()=>setSt('tickMode',style.tickMode==='ruler'?'step':'ruler')}
+      style={tgl(style.tickMode==='ruler')}>{style.tickMode==='ruler'?'⊢ Ruler':'↕ Steps'}</button>
     <button onClick={()=>setParams(p=>({...p,...DEF_PARAMS,fps:p.fps,animOn:p.animOn}))}
       style={{...tgl(false),marginLeft:4}} title="Reset">↺</button>
   </div>
@@ -774,7 +1027,7 @@ boxShadow:'0 4px 16px rgba(42,35,24,0.15)'}}>
       ))}
       <div ref={scrubRef} style={{position:'absolute',top:-5,left:'0%',width:13,height:13,
         background:T.ink,border:`2px solid ${T.paper}`,borderRadius:'50%',
-        transform:'translateX(-50%)',pointerEvents:'none',boxShadow:'0 1px 4px rgba(42,35,24,0.2)'}}/>
+        transform:'translateX(-50%)',pointerEvents:'none',boxShadow:`0 1px 4px ${ha(T.ink,0.2)}`}}/>
     </div>
     <div style={{display:'flex',gap:5,flexWrap:'wrap'}}>
       {KEY_POSES.map(kp=>(
@@ -800,7 +1053,7 @@ boxShadow:'0 4px 16px rgba(42,35,24,0.15)'}}>
                 padding:'7px 4px 5px',fontSize:8,letterSpacing:'0.1em',
                 fontFamily:'inherit',textTransform:'uppercase',transition:'all 0.1s',
                 display:'flex',flexDirection:'column',alignItems:'center',gap:2}}>
-        <span style={{fontSize:13,lineHeight:1}}>{t.icon}</span>
+        <span style={{fontSize:13,lineHeight:1}}>{T.tabIcons?.[t.key] ?? t.icon}</span>
         <span>{t.label}</span>
       </button>
     ))}
@@ -816,7 +1069,7 @@ boxShadow:'0 4px 16px rgba(42,35,24,0.15)'}}>
         <SliderGrid sliders={TAB_SLIDERS.walk} params={params} onChange={setP}/>
         <div style={divider}/>
         <p style={{fontSize:9,color:T.ink3,lineHeight:1.65,fontStyle:'italic',margin:0}}>
-          Heel/Toe: +1 heel strikes first · 0 flat foot · −1 toe lands first (sneak)
+          Toe/Heel: −1 toe lands first · 0 flat foot · +1 heel strikes first
         </p>
       </div>
     )}
@@ -968,19 +1221,30 @@ boxShadow:'0 4px 16px rgba(42,35,24,0.15)'}}>
   {/* Export */}
   <div style={{padding:'12px 16px',background:T.paperDk,borderTop:`1px solid ${T.border}`}}>
     <div style={{fontSize:9,letterSpacing:'0.15em',color:T.ink3,textTransform:'uppercase',marginBottom:8}}>↓ Export</div>
-    <div style={{display:'flex',gap:7,alignItems:'center',flexWrap:'wrap',marginBottom:10}}>
+    <div style={{display:'flex',gap:7,alignItems:'center',flexWrap:'wrap',marginBottom:8}}>
       <button onClick={()=>setExpTrans(v=>!v)} style={tgl(expTrans)}>{expTrans?'Transparent':'Opaque'}</button>
       <div style={{display:'flex',gap:3}}>
         {[1,2].map(r=><button key={r} onClick={()=>setExpRes(r)} style={chip(expRes===r)}>{r}×</button>)}
       </div>
-      <span style={{fontSize:9,color:T.ink3}}>{dc} {params.animOn===2?'drawings (2s)':'frames'} · {W*expRes}×{H*expRes}px per frame · sheet {Math.ceil(Math.sqrt(dc))}×{Math.ceil(dc/Math.ceil(Math.sqrt(dc)))} grid</span>
+      <div style={{display:'flex',gap:3}}>
+        {EXP_ASPECTS.map(a=><button key={a.key} onClick={()=>setExpAspect(a.key)} style={chip(expAspect===a.key)}>{a.label}</button>)}
+      </div>
+    </div>
+    <div style={{fontSize:9,color:T.ink3,marginBottom:10}}>
+      {(()=>{const {w,h}=getAspect();return`${dc} ${params.animOn===2?'drawings (2s)':'frames'} · ${w*expRes}×${h*expRes}px · sheet ${Math.ceil(Math.sqrt(dc))}×${Math.ceil(dc/Math.ceil(Math.sqrt(dc)))} (native 3:2)`;})()}
     </div>
     <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
       <button onClick={()=>doExport('sequence')} disabled={exporting}
         style={{background:exporting?T.paperDk:T.ink,border:`1px solid ${T.ink}`,
                 color:exporting?T.ink3:T.paper,borderRadius:3,padding:'7px 14px',
                 cursor:exporting?'not-allowed':'pointer',fontSize:10,letterSpacing:'0.1em',fontFamily:'inherit',textTransform:'uppercase'}}>
-        {exporting?`${expPct}%  working...`:'↓ PNG Sequence (zip)'}
+        {exporting?`${expPct}%  working...`:'↓ PNG Sequence'}
+      </button>
+      <button onClick={doGifExport} disabled={exporting}
+        style={{background:'transparent',border:`1px solid ${T.blue}`,
+                color:exporting?T.ink4:T.blue,borderRadius:3,padding:'7px 14px',
+                cursor:exporting?'not-allowed':'pointer',fontSize:10,letterSpacing:'0.1em',fontFamily:'inherit',textTransform:'uppercase'}}>
+        {exporting?`${expPct}%`:'↓ GIF'}
       </button>
       <button onClick={()=>doExport('spritesheet')} disabled={exporting}
         style={{background:'transparent',border:`1px solid ${T.border}`,
@@ -1004,7 +1268,7 @@ boxShadow:'0 4px 16px rgba(42,35,24,0.15)'}}>
       </a>
     )}
     <p style={{marginTop:8,fontSize:9,color:T.ink4,lineHeight:1.6,fontStyle:'italic',margin:'8px 0 0'}}>
-      Sequence exports as a single zip. Spritesheet exports as one PNG. Onion skins, key poses and ghost trail excluded.
+      PNG/GIF use selected aspect ratio (letterboxed). Spritesheet always uses native 3:2. Onion skins and ghost trail excluded.
       {params.animOn===2&&` On 2s: ${dc} unique drawings, each held 2 frames.`}
     </p>
   </div>

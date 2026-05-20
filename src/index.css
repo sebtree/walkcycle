@@ -1,3 +1,33 @@
 *, *::before, *::after { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
 body { background: #1A1510; }
+
+/* ── Theme variables ────────────────────────────────────────────────────────── */
+:root, [data-theme="light"] {
+  --paper: #F4EFE4; --paper-dk: #E8E2D2; --paper-lt: #FAF8F3;
+  --border: #C8B99A; --border-lt: #DDD5C0;
+  --ink: #2A2318; --ink2: #574A38; --ink3: #7A6C5C; --ink4: #9E9080;
+  --blue: #4A6FA5; --red: #B84040; --amber: #C07830;
+}
+[data-theme="dark"] {
+  --paper: #1E1A14; --paper-dk: #161210; --paper-lt: #252018;
+  --border: #3A3020; --border-lt: #2C2418;
+  --ink: #E8E0D0; --ink2: #C4B89A; --ink3: #8A7C68; --ink4: #5A5040;
+  --blue: #6A9FD5; --red: #D86060; --amber: #E09840;
+}
+[data-theme="pink"] {
+  --paper: #FFF0F8; --paper-dk: #FFD6EC; --paper-lt: #FFF8FC;
+  --border: #F4A0C8; --border-lt: #FAC0DC;
+  --ink: #3A1828; --ink2: #7A3858; --ink3: #B468A0; --ink4: #D4A0C0;
+  --blue: #C050A0; --red: #E03080; --amber: #F08040;
+}
+
+/* ── Global input styling ───────────────────────────────────────────────────── */
+input[type="range"] { accent-color: var(--blue); cursor: pointer; }
+input[type="range"]::-webkit-scrollbar { display: none; }
+
+/* ── Scrollbar theming ──────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: var(--paper-dk); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--ink4); }
