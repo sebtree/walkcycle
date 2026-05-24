@@ -38,15 +38,17 @@ function biasKnee(kn, bias, dir, hx, hy, t) {
   const d = Math.sqrt(dx*dx + dy*dy) || t;
   return {x: hx + dx/d*t, y: hy + dy/d*t};
 }
-function armSetup(ap, shX, shY, uA, fA, swing, bendDeg, dir, armRaise=0) {
+function armSetup(ap, shX, shY, uA, fA, swing, bendDeg, dir, armRaise=0, ease=1) {
 const max = Math.asin(Math.min(swing / Math.max(uA+fA, 1), 0.95));
-const alpha = Math.sin(ap) * max;
+const s = Math.sin(ap);
+const es = (ease !== 1 && s !== 0) ? (s > 0 ? Math.pow(s, 1/ease) : -Math.pow(-s, 1/ease)) : s;
+const alpha = es * max;
 const raise = armRaise * Math.PI / 180;
 const cosR = Math.cos(raise), sinR = Math.sin(raise);
 const eX = shX + Math.sin(alpha)*dir*uA;
 const eY = shY + Math.cos(alpha)*cosR*uA;
 const eDzRaise = Math.cos(alpha)*sinR*uA;
-const bend = (bendDeg * Math.PI / 180) * Math.max(0, Math.sin(ap));
+const bend = (bendDeg * Math.PI / 180) * Math.max(0, s);
 const fa = alpha + bend;
 const hX = eX + Math.sin(fa)*dir*fA;
 const hY = eY + Math.cos(fa)*cosR*fA;
@@ -134,15 +136,15 @@ ctx.restore();
 // This makes the figure dwell at CONTACT (t≈0.25) and TOE-OFF (t≈0.75),
 // and rush through PASSING (t≈0, t≈0.5) — which is correct for walk weight.
 //
-// Velocity = 1 + feel·cos(4πt)/3
-//   t=0.25 and t=0.75: velocity = 1 − feel/3  (slowest, min 0.67× at feel=1)
-//   t=0   and t=0.5:   velocity = 1 + feel/3  (fastest, max 1.33× at feel=1)
+// Velocity = 1 + feel·cos(4πt)/1.5
+//   t=0.25 and t=0.75: velocity = 1 − feel/1.5  (slowest, min 0.33× at feel=1)
+//   t=0   and t=0.5:   velocity = 1 + feel/1.5  (fastest, max 1.67× at feel=1)
 //
 // The figure NEVER pauses at any feel value. Boundary conditions preserved:
 // applyFeel(0)=0, applyFeel(1)=1 (sin(4π)=0).
 function applyFeel(t, feel) {
 if (feel <= 0) return t;
-return t + feel * Math.sin(4 * Math.PI * t) / (12 * Math.PI);
+return t + feel * Math.sin(4 * Math.PI * t) / (6 * Math.PI);
 }
 const cycLen = (fps, speed) => Math.max(2, Math.round(fps * TAU / (speed * 2.5)));
 
@@ -299,7 +301,8 @@ const spCtrlY = hipY*0.25 + sY*0.75 + 2*clampedBend*Math.sin(tilt)*dir;
 const neckLen = headSize*1.4;
 const neckTiltRad = (p.headAngle||0) * Math.PI/180;
 const swingAngle = headPendulum / Math.max(neckLen, 1);
-const headTheta = neckTiltRad + Math.sin(phase)*swingAngle; // total neck angle from vertical
+const headDelayRad = (p.headDelay||0) * Math.PI/180;
+const headTheta = neckTiltRad + Math.sin(phase - headDelayRad)*swingAngle;
 const hdX = sX + neckLen*Math.sin(headTheta)*dir;
 const hdY = sY - neckLen*Math.cos(headTheta) - Math.abs(Math.sin(phase*2))*headBob;
 const hdZ = 0;
@@ -315,8 +318,10 @@ const fAn=sf.ankle, fK=sf.knee, bAn=sb.ankle, bK=sb.knee;
 fK.y=Math.min(fK.y,GY-1); bK.y=Math.min(bK.y,GY-1);
 const armRaise = p.armRaise || 0;
 const armDir   = p.armDirection || 0;
-const fAOut=armSetup(phase+Math.PI,fShoX,fShoY,uArm,fArm,armSwing,armBend,dir,armRaise);
-const bAOut=armSetup(phase,        bShoX,bShoY,uArm,fArm,armSwing,armBend,dir,armRaise);
+const armDelayRad = (p.armDelay||0) * Math.PI/180;
+const armEaseVal  = p.armEase  || 1;
+const fAOut=armSetup(phase+Math.PI-armDelayRad,fShoX,fShoY,uArm,fArm,armSwing,armBend,dir,armRaise,armEaseVal);
+const bAOut=armSetup(phase      -armDelayRad,  bShoX,bShoY,uArm,fArm,armSwing,armBend,dir,armRaise,armEaseVal);
 const {elbow:fE,hand:fH}=fAOut;
 const {elbow:bE,hand:bH}=bAOut;
 [fE,fH,bE,bH].forEach(pt=>{ pt.y=Math.min(pt.y,GY-2); });
@@ -850,7 +855,9 @@ walk:[
 {key:'bounce',    label:'Bounce',      min:0,  max:20, step:0.5, unit:''},
 {key:'armSwing',  label:'Arm Swing',   min:0,  max:50, step:1,   unit:'px',
  expand:[
-   {key:'armDirection', label:'Direction', min:0, max:20, step:1, unit:'px', hint:'Arms follow shoulder rotation — higher values angle forearms toward body center'},
+   {key:'armDirection', label:'Direction', min:0,   max:20,  step:1,   unit:'px',  hint:'Arms follow shoulder rotation — higher values angle forearms toward body center'},
+   {key:'armDelay',     label:'Follow',    min:-45, max:45,  step:1,   unit:'°',   hint:'Arms lead (−) or follow (+) body'},
+   {key:'armEase',      label:'Ease',      min:0.3, max:3.0, step:0.1, unit:'×',   hint:'< 1 = crisp · 1 = natural · > 1 = heavy'},
  ]},
 {key:'heelToe',   label:'Toe/Heel',    min:-1, max:1,  step:0.05,unit:''},
 ],
@@ -865,7 +872,10 @@ style:[
 {key:'legBend',      label:'Leg Bend',       min:-15,max:28, step:1,  unit:'px'},
 {key:'armBend',      label:'Arm Bend',       min:0,  max:60, step:1,  unit:'°'},
 {key:'headBob',      label:'Head Bob',       min:0,  max:14, step:0.5,unit:'px'},
-{key:'headPendulum', label:'Head Swing',     min:0,  max:18, step:0.5,unit:'px'},
+{key:'headPendulum', label:'Head Swing',     min:0,  max:18, step:0.5,unit:'px',
+ expand:[
+   {key:'headDelay', label:'Follow', min:-30, max:30, step:1, unit:'°', hint:'Head leads (−) or follows (+) body'},
+ ]},
 {key:'ghostTrail',   label:'Ghost Trail',    min:0,  max:6,  step:1,  unit:''},
 ],
 };
@@ -883,9 +893,9 @@ Toddler: {speed:1.1, bounce:16, armSwing:14,stepLength:14,kneeLift:25,torsoLen:3
 // ── Defaults ──────────────────────────────────────────────────────────────────
 const DEF_PARAMS = {
 legLen:70,armLen:54,torsoLen:45,headSize:14,footSize:10,lineWidth:3,
-legBend:4,armBend:15,legRatio:0,armRatio:0,armRaise:0,armDirection:0,spineBend:0,spineDir:0,
+legBend:4,armBend:15,legRatio:0,armRatio:0,armRaise:0,armDirection:0,armDelay:0,armEase:1,spineBend:0,spineDir:0,
 speed:2.4,stepLength:24,stepWidth:7,kneeLift:25,footLift:0.1,bounce:4,armSwing:8,heelToe:0.8,
-leanAngle:2,bodyTilt:1,hipSway:7,shoulderWidth:10,headBob:0,headPendulum:1,headAngle:0,ghostTrail:0,
+leanAngle:2,bodyTilt:1,hipSway:7,shoulderWidth:10,headBob:0,headPendulum:1,headAngle:0,headDelay:0,ghostTrail:0,
 fps:24,animOn:1,feel:0.5,viewAngle:0,
 };
 const DEF_STYLE = {figureIdx:0,bgIdx:0,showGrid:false,showShadow:false,footDots:false,flipDir:false,loco:'place',themeIdx:0,tickMode:'step'};
