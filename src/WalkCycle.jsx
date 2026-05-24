@@ -38,13 +38,20 @@ function biasKnee(kn, bias, dir, hx, hy, t) {
   const d = Math.sqrt(dx*dx + dy*dy) || t;
   return {x: hx + dx/d*t, y: hy + dy/d*t};
 }
-function armSetup(ap, shX, shY, uA, fA, swing, bendDeg, dir) {
+function armSetup(ap, shX, shY, uA, fA, swing, bendDeg, dir, armRaise=0) {
 const max = Math.asin(Math.min(swing / Math.max(uA+fA, 1), 0.95));
 const alpha = Math.sin(ap) * max;
-const eX = shX + Math.sin(alpha)*dir*uA, eY = shY + Math.cos(alpha)*uA;
+const raise = armRaise * Math.PI / 180;
+const cosR = Math.cos(raise), sinR = Math.sin(raise);
+const eX = shX + Math.sin(alpha)*dir*uA;
+const eY = shY + Math.cos(alpha)*cosR*uA;
+const eDzRaise = Math.cos(alpha)*sinR*uA;
 const bend = (bendDeg * Math.PI / 180) * Math.max(0, Math.sin(ap));
 const fa = alpha + bend;
-return { elbow:{x:eX,y:eY}, hand:{x:eX+Math.sin(fa)*dir*fA, y:eY+Math.cos(fa)*fA} };
+const hX = eX + Math.sin(fa)*dir*fA;
+const hY = eY + Math.cos(fa)*cosR*fA;
+const hDzRaise = Math.cos(fa)*sinR*fA;
+return { elbow:{x:eX,y:eY}, hand:{x:hX,y:hY}, eDzRaise, hDzRaise, alpha, fa };
 }
 // ── Foot drawing ──────────────────────────────────────────────────────────────
 // One continuous foot-angle formula through all phases. No mode switching.
@@ -70,7 +77,7 @@ return { elbow:{x:eX,y:eY}, hand:{x:eX+Math.sin(fa)*dir*fA, y:eY+Math.cos(fa)*fA
 // beyond mtpLen. Toe is flat at GY while ball is grounded, angled in the air.
 function isDark(hex) { if(!hex||!hex.startsWith('#')) return false; const [r,g,b]=hex.match(/\w\w/g).map(x=>parseInt(x,16)); return 0.299*r+0.587*g+0.114*b<60; }
 
-function drawFoot(ctx, fx, fy, lp, sz, dir, lw, am, stroke, legLen, stepLen, heelToe, liftTilt=0, halo=null) {
+function drawFoot(ctx, fx, fy, lp, sz, dir, lw, am, stroke, legLen, stepLen, heelToe, liftTilt=0, halo=null, viewCos=1) {
 const mtpLen = sz * 0.75, toeLen = sz * 0.25;
 const maxDeg = Math.asin(Math.min(0.92, stepLen / Math.max(legLen, 1))) * (180 / Math.PI);
 const rawA   = maxDeg * heelToe * Math.sin(lp) * Math.PI / 180;
@@ -102,15 +109,15 @@ if (rise > sz * 0.4) a = Math.max(0, a);
 a += liftTilt;
 }
 const ca = Math.cos(a), sa = Math.sin(a);
-const bx = fx + mtpLen * ca * dir;
+const bx = fx + mtpLen * ca * dir * viewCos;
 const by = Math.min(fy - mtpLen * sa, GY);                    // never below GY
 
 // Toe: flat at GY while ball is grounded; follows foot angle when airborne
 let tx, ty;
 if (by >= GY - 0.5) {
-tx = bx + toeLen * dir; ty = GY;                            // flat ground contact
+tx = bx + toeLen * dir * viewCos; ty = GY;                  // flat ground contact
 } else {
-tx = bx + toeLen * ca * dir;
+tx = bx + toeLen * ca * dir * viewCos;
 ty = Math.min(by - toeLen * sa, GY);
 }
 
@@ -255,10 +262,12 @@ function computePose(phase, cx, p, dir) {
 const {stepLength,kneeLift,footLift,torsoLen,legLen,armLen,headSize,footSize,legBend,armBend,
 bodyTilt,hipSway,shoulderWidth=0,leanAngle,headBob,headPendulum,armSwing,bounce} = p;
 const thigh=legLen*0.52, shin=legLen*0.48, uArm=armLen*0.48, fArm=armLen*0.52;
-// Cap sl so the diagonal hip-to-foot distance never exceeds legLen (prevents IK snap).
-// With dip capped at legLen×0.28, the safe max sl = sqrt(0.28×1.72)×legLen ≈ 0.67×legLen.
+// stepWidth: lateral z-offset of feet. When wider than legLen, forward reach approaches zero.
+const footZ3d = p.stepWidth ?? hipSway;
+// Cap sl so IK never snaps. Also reduce max reach when feet are laterally offset (geometry).
 const dipCap = legLen * 0.28;
-const sl = Math.min(stepLength, Math.sqrt(dipCap * (2 * legLen - dipCap)) * 0.97);
+const maxFwdReach = Math.sqrt(Math.max(0, legLen*legLen - footZ3d*footZ3d)) * 0.97;
+const sl = Math.min(stepLength, maxFwdReach, Math.sqrt(dipCap * (2 * legLen - dipCap)) * 0.97);
 const fFootX = footPosX(phase,        sl, dir, cx);
 const bFootX = footPosX(phase+Math.PI, sl, dir, cx);
 const stanceDx = Math.min(Math.abs(fFootX-cx), Math.abs(bFootX-cx));
@@ -273,9 +282,27 @@ const tiltDY = rot * hipSway * 0.4;
 const fHipX = hipX + rot*hipSway, fHipY = hipY + tiltDY;
 const bHipX = hipX - rot*hipSway, bHipY = hipY - tiltDY;
 const tilt = Math.sin(phase)*(bodyTilt*Math.PI/180)*dir + leanAngle*Math.PI/180;
-const sX = hipX+Math.sin(tilt)*torsoLen, sY = hipY-Math.cos(tilt)*torsoLen;
-const hdX = sX+Math.sin(phase)*headPendulum*dir;
-const hdY = sY-headSize*1.4-Math.abs(Math.sin(phase*2))*headBob;
+const spineBend = p.spineBend || 0;
+const spineDir  = p.spineDir  || 0;
+const tiltF = Math.sin(tilt);
+const dirBias = spineDir / 10;
+const bendF = -tiltF * (1 - Math.abs(dirBias)) + dirBias;
+const actualBend = spineBend * bendF;
+const maxBend = torsoLen * 0.45;
+const clampedBend = Math.max(-maxBend, Math.min(maxBend, actualBend));
+const spineChord = Math.sqrt(Math.max(0, torsoLen*torsoLen - 4*clampedBend*clampedBend));
+const sX = hipX+Math.sin(tilt)*spineChord, sY = hipY-Math.cos(tilt)*spineChord;
+const spCtrlX = (hipX+sX)/2 + 2*clampedBend*Math.cos(tilt)*dir;
+const spCtrlY = (hipY+sY)/2 + 2*clampedBend*Math.sin(tilt)*dir;
+const neckLen = headSize*1.4;
+const neckTiltRad = (p.headAngle||0) * Math.PI/180;
+const swingAngle = headPendulum / Math.max(neckLen, 1);
+const headTheta = neckTiltRad + Math.sin(phase)*swingAngle; // total neck angle from vertical
+const hdX = sX + neckLen*Math.sin(headTheta)*dir;
+const hdY = sY - neckLen*Math.cos(headTheta) - Math.abs(Math.sin(phase*2))*headBob;
+const hdZ = 0;
+const headMaxFwd = Math.sin((Math.abs(leanAngle)+Math.abs(bodyTilt))*Math.PI/180)*spineChord
+                 + neckLen*Math.sin(Math.abs(neckTiltRad)+swingAngle);
 // Shoulders counter-rotate: forward shoulder rises (+y reversed) and goes back (-x)
 const shouAmt = shoulderWidth;
 const fShoX = sX - rot*shouAmt, fShoY = sY + tiltDY*0.75;
@@ -284,42 +311,238 @@ const sf = computeLeg(phase,        cx, fHipX, fHipY, thigh, shin, sl, kneeLift,
 const sb = computeLeg(phase+Math.PI, cx, bHipX, bHipY, thigh, shin, sl, kneeLift, footLift, legBend, footSize, legLen, dir);
 const fAn=sf.ankle, fK=sf.knee, bAn=sb.ankle, bK=sb.knee;
 fK.y=Math.min(fK.y,GY-1); bK.y=Math.min(bK.y,GY-1);
-const {elbow:fE,hand:fH}=armSetup(phase+Math.PI,fShoX,fShoY,uArm,fArm,armSwing,armBend,dir);
-const {elbow:bE,hand:bH}=armSetup(phase,bShoX,bShoY,uArm,fArm,armSwing,armBend,dir);
+const armRaise = p.armRaise || 0;
+const armDir   = p.armDirection || 0;
+const fAOut=armSetup(phase+Math.PI,fShoX,fShoY,uArm,fArm,armSwing,armBend,dir,armRaise);
+const bAOut=armSetup(phase,        bShoX,bShoY,uArm,fArm,armSwing,armBend,dir,armRaise);
+const {elbow:fE,hand:fH}=fAOut;
+const {elbow:bE,hand:bH}=bAOut;
 [fE,fH,bE,bH].forEach(pt=>{ pt.y=Math.min(pt.y,GY-2); });
-return {hipX,hipY,fHipX,bHipX,fHipY,bHipY,sX,sY,fShoX,fShoY,bShoX,bShoY,hdX,hdY,fAn,bAn,fK,bK,fE,fH,bE,bH};
+// 3D Y-axis rotation: viewAngle=0 side view, 90 = front, 180 = other side, 270 = back.
+// sinA is negated so increasing angle rotates toward the front face.
+const va = (p.viewAngle||0) * Math.PI / 180;
+const cosA=Math.cos(va), sinA=-Math.sin(va);
+const HW=hipSway, SW=shoulderWidth;
+// Per-joint arm z-offsets: base clearance + lateral raise contribution + direction (crossing)
+const armBaseZ = Math.max(SW, HW);
+// Arm crossing (armDir * rot): elbows cross moderately, hands cross more — gives visible
+// forearm follow-through angle. Both scale from the same rot*sin so symmetry is preserved.
+const fEZ_raw = armBaseZ + fAOut.eDzRaise + armDir * rot * Math.sin(fAOut.alpha) * 0.45;
+const bEZ_raw = armBaseZ + bAOut.eDzRaise - armDir * rot * Math.sin(bAOut.alpha) * 0.45;
+const fEZ = Math.max(0, fEZ_raw);
+const bEZ = Math.max(0, bEZ_raw);
+const fHZ = Math.max(0, fEZ_raw + fAOut.hDzRaise + armDir * rot * Math.sin(fAOut.fa) * 1.3);
+const bHZ = Math.max(0, bEZ_raw + bAOut.hDzRaise - armDir * rot * Math.sin(bAOut.fa) * 1.3);
+const pose = {hipX,hipY,fHipX,bHipX,fHipY,bHipY,sX,sY,spCtrlX,spCtrlY,fShoX,fShoY,bShoX,bShoY,hdX,hdY,headMaxFwd,headTheta,fAn,bAn,fK,bK,fE,fH,bE,bH,
+  fDepth:0,bDepth:0,fArmDepth:0,bArmDepth:0,headDepth:0,fKDepth:0,bKDepth:0,
+  fEDepth:0,bEDepth:0,fAnDepth:0,bAnDepth:0,fHDepth:0,bHDepth:0,
+  fEZ,bEZ,fHZ,bHZ};
+pose.fDepth    = -(fHipX-cx)*sinA + HW*cosA;
+pose.bDepth    = -(bHipX-cx)*sinA - HW*cosA;
+pose.fArmDepth = -(fShoX-cx)*sinA + SW*cosA;
+pose.bArmDepth = -(bShoX-cx)*sinA - SW*cosA;
+pose.headDepth = -(hdX-cx)*sinA + hdZ*cosA;
+// Knees use footZ3d (same as ankles) so the full leg slopes consistently with step width
+pose.fKDepth   = -(fK.x-cx)*sinA + footZ3d*cosA;
+pose.bKDepth   = -(bK.x-cx)*sinA - footZ3d*cosA;
+pose.fAnDepth  = -(fAn.x-cx)*sinA + footZ3d*cosA;
+pose.bAnDepth  = -(bAn.x-cx)*sinA - footZ3d*cosA;
+pose.fEDepth   = -(fE.x-cx)*sinA + fEZ*cosA;
+pose.bEDepth   = -(bE.x-cx)*sinA - bEZ*cosA;
+pose.fHDepth   = -(fH.x-cx)*sinA + fHZ*cosA;
+pose.bHDepth   = -(bH.x-cx)*sinA - bHZ*cosA;
+if (va !== 0) {
+  const proj = (x, z) => cx + (x-cx)*cosA + z*sinA;
+  pose.hipX=proj(hipX,0); pose.sX=proj(sX,0); pose.spCtrlX=proj(spCtrlX,0); pose.hdX=proj(hdX,hdZ);
+  // Knees now use footZ3d (same as ankles) for consistent leg slope
+  pose.fHipX=proj(fHipX,HW);  pose.fK={x:proj(fK.x,footZ3d),y:fK.y};  pose.fAn={x:proj(fAn.x,footZ3d),y:fAn.y};
+  pose.bHipX=proj(bHipX,-HW); pose.bK={x:proj(bK.x,-footZ3d),y:bK.y}; pose.bAn={x:proj(bAn.x,-footZ3d),y:bAn.y};
+  pose.fShoX=proj(fShoX,SW);  pose.fE={x:proj(fE.x,fEZ),y:fE.y};  pose.fH={x:proj(fH.x,fHZ),y:fH.y};
+  pose.bShoX=proj(bShoX,-SW); pose.bE={x:proj(bE.x,-bEZ),y:bE.y}; pose.bH={x:proj(bH.x,-bHZ),y:bH.y};
 }
+return pose;
+}
+
+function hexRgba(hex,a){const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);return `rgba(${r},${g},${b},${a})`;}
 
 // ── Draw figure from pose ─────────────────────────────────────────────────────
 function drawFigure(ctx, pose, p, col, dir, phase, am=1) {
-const {hipX,hipY,fHipX,bHipX,fHipY,bHipY,sX,sY,fShoX,fShoY,bShoX,bShoY,hdX,hdY,fAn,bAn,fK,bK,fE,fH,bE,bH} = pose;
+const {hipX,hipY,fHipX,bHipX,fHipY,bHipY,sX,sY,spCtrlX,spCtrlY,fShoX,fShoY,bShoX,bShoY,hdX,hdY,headMaxFwd=0,headTheta=0,
+       fAn,bAn,fK,bK,fE,fH,bE,bH,
+       fDepth=0,bDepth=0,fArmDepth=0,bArmDepth=0,headDepth=0,
+       fKDepth=0,bKDepth=0,fAnDepth=0,bAnDepth=0,
+       fEDepth=0,bEDepth=0,fHDepth=0,bHDepth=0,
+       fEZ=1,bEZ=1,fHZ=1,bHZ=1} = pose;
 const {footSize:fs,heelToe:ht,legLen:ll,stepLength:sl,lineWidth:lw,headSize:hs} = p;
 const sc = k => col.parts ? col.parts[k] : col.stroke;
 const haloColor = 'rgba(255,255,255,0.42)';
 const footHalo = col.parts && isDark(sc('feet')) ? haloColor : null;
 const headHalo = col.parts && isDark(sc('head')) ? haloColor : null;
+const va = (p.viewAngle||0)*Math.PI/180;
+const cosA = Math.cos(va), sinA = -Math.sin(va);
+const viewCos = cosA;
 ctx.save(); ctx.fillStyle=col.fill;
 ctx.lineWidth=lw; ctx.lineCap='round'; ctx.lineJoin='round';
-ctx.globalAlpha=0.38*am; ctx.strokeStyle=sc('legs');
-ctx.beginPath(); ctx.moveTo(bHipX,bHipY); ctx.lineTo(bK.x,bK.y); ctx.lineTo(bAn.x,bAn.y); ctx.stroke();
-if(fs>0) drawFoot(ctx,bAn.x,bAn.y,phase+Math.PI,fs,dir,lw,0.38*am,sc('feet'),ll,sl,ht,0,footHalo);
-ctx.globalAlpha=0.30*am; ctx.strokeStyle=sc('arms');
-ctx.beginPath(); ctx.moveTo(bShoX,bShoY); ctx.lineTo(bE.x,bE.y); ctx.lineTo(bH.x,bH.y); ctx.stroke();
-ctx.globalAlpha=am; ctx.strokeStyle=sc('body');
-ctx.beginPath(); ctx.moveTo(hipX,hipY); ctx.lineTo(sX,sY); ctx.stroke();
-// Hip crossbar tilts forward-side down; shoulder crossbar tilts opposite — visible counter-rotation
-ctx.beginPath(); ctx.moveTo(bHipX,bHipY); ctx.lineTo(fHipX,fHipY); ctx.stroke();
-ctx.beginPath(); ctx.moveTo(bShoX,bShoY); ctx.lineTo(fShoX,fShoY); ctx.stroke();
-ctx.strokeStyle=sc('legs');
-ctx.beginPath(); ctx.moveTo(fHipX,fHipY); ctx.lineTo(fK.x,fK.y); ctx.lineTo(fAn.x,fAn.y); ctx.stroke();
-if(fs>0) drawFoot(ctx,fAn.x,fAn.y,phase,fs,dir,lw,am,sc('feet'),ll,sl,ht,0,footHalo);
-ctx.globalAlpha=0.88*am; ctx.strokeStyle=sc('arms');
-ctx.beginPath(); ctx.moveTo(fShoX,fShoY); ctx.lineTo(fE.x,fE.y); ctx.lineTo(fH.x,fH.y); ctx.stroke();
-ctx.globalAlpha=am;
-if(headHalo){ctx.strokeStyle=haloColor;ctx.lineWidth=lw*2.0;ctx.beginPath();ctx.arc(hdX,hdY,hs,0,TAU);ctx.stroke();ctx.lineWidth=lw;}
+
+// Dynamically determine which limb is closer to the viewer based on 3D depth.
+// Near front/back view (|cosA|<0.40) depth sort is x-based; use z-sign tiebreaker instead.
+const frontCloser = Math.abs(cosA) > 0.40 ? fDepth >= bDepth : sinA <= 0;
+// Shoulders counter-rotate vs hips (fShoX = sX - rot*SW, opposite of fHipX).
+// At front view fArmDepth = (fShoX-cx) = -rot*SW — correct oscillating depth, no threshold needed.
+const armFrontCloser = fArmDepth >= bArmDepth;
+// LEGS — use hip-based frontCloser
+const [nHipX,nHipY,nK,nAn,nPhase] = frontCloser
+  ? [fHipX,fHipY,fK,fAn,phase]
+  : [bHipX,bHipY,bK,bAn,phase+Math.PI];
+const [xHipX,xHipY,xK,xAn,xPhase] = frontCloser
+  ? [bHipX,bHipY,bK,bAn,phase+Math.PI]
+  : [fHipX,fHipY,fK,fAn,phase];
+// ARMS — use armFrontCloser (independent of legs due to counter-rotation)
+const [nShoX,nShoY,nE,nH] = armFrontCloser ? [fShoX,fShoY,fE,fH] : [bShoX,bShoY,bE,bH];
+const [xShoX,xShoY,xE,xH] = armFrontCloser ? [bShoX,bShoY,bE,bH] : [fShoX,fShoY,fE,fH];
+
+// Continuous depth → opacity + line weight
+const HW = p.hipSway||0, SW = p.shoulderWidth||0;
+const dF = (d, s) => s > 0 ? Math.max(0, Math.min(1, (d+s)/(2*s))) : 0.5;
+const footZ = p.stepWidth ?? HW;
+const tNearLeg    = dF(frontCloser ? fDepth    : bDepth,    HW);
+const tFarLeg     = dF(frontCloser ? bDepth    : fDepth,    HW);
+const tNearKnee   = dF(frontCloser ? fKDepth   : bKDepth,   footZ);
+const tFarKnee    = dF(frontCloser ? bKDepth   : fKDepth,   footZ);
+const tNearAnkle  = dF(frontCloser ? fAnDepth  : bAnDepth,  footZ);
+const tFarAnkle   = dF(frontCloser ? bAnDepth  : fAnDepth,  footZ);
+const armBaseZ = Math.max(SW, HW);
+const tNearArm   = dF(armFrontCloser ? fArmDepth : bArmDepth, armBaseZ);
+const tFarArm    = dF(armFrontCloser ? bArmDepth : fArmDepth, armBaseZ);
+const tNearElbow = dF(armFrontCloser ? fEDepth   : bEDepth,   armBaseZ);
+const tFarElbow  = dF(armFrontCloser ? bEDepth   : fEDepth,   armBaseZ);
+const tNearHand  = dF(armFrontCloser ? fHDepth   : bHDepth,   armBaseZ);
+const tFarHand   = dF(armFrontCloser ? bHDepth   : fHDepth,   armBaseZ);
+const nearLegLW=lw*(0.50+0.50*tNearLeg), farLegLW=lw*(0.50+0.50*tFarLeg);
+const nearLegA =am*(0.30+0.70*tNearLeg), farLegA =am*(0.30+0.70*tFarLeg);
+const nearArmLW=lw*(0.50+0.50*tNearArm), farArmLW=lw*(0.50+0.50*tFarArm);
+const nearArmA =am*(0.30+0.70*tNearArm), farArmA =am*(0.30+0.70*tFarArm);
+const lwT = t => lw*(0.50+0.50*t);
+
+// Tapered trapezoid: width and opacity both graduate from t0 (start) to t1 (end).
+// Dot joints cover the endpoints so no round caps needed.
+const segG = (x0,y0,x1,y1,t0,t1,color) => {
+  const dx=x1-x0, dy=y1-y0, len=Math.sqrt(dx*dx+dy*dy)||1;
+  const nx=-dy/len, ny=dx/len;
+  const hw0=lwT(t0)/2, hw1=lwT(t1)/2;
+  const g = ctx.createLinearGradient(x0,y0,x1,y1);
+  g.addColorStop(0, hexRgba(color, am*(0.30+0.70*t0)));
+  g.addColorStop(1, hexRgba(color, am*(0.30+0.70*t1)));
+  ctx.globalAlpha=1; ctx.fillStyle=g;
+  ctx.beginPath();
+  ctx.moveTo(x0+nx*hw0, y0+ny*hw0);
+  ctx.lineTo(x1+nx*hw1, y1+ny*hw1);
+  ctx.lineTo(x1-nx*hw1, y1-ny*hw1);
+  ctx.lineTo(x0-nx*hw0, y0-ny*hw0);
+  ctx.closePath(); ctx.fill();
+};
+
+// Joint dot helper: filled circle slightly larger than the line endpoint
+const dot=(x,y,t,color,s=1)=>{ctx.globalAlpha=am*(0.30+0.70*t);ctx.fillStyle=color;ctx.beginPath();ctx.arc(x,y,lw*(0.6+0.5*t)*s,0,TAU);ctx.fill();};
+
+// Far limbs first (depth-based opacity + weight, per segment)
+segG(xHipX,xHipY, xK.x,xK.y,   tFarLeg,    tFarKnee,   sc('legs'));
+segG(xK.x,xK.y,   xAn.x,xAn.y, tFarKnee,   tFarAnkle,  sc('legs'));
+if(fs>0) drawFoot(ctx,xAn.x,xAn.y,xPhase,fs,dir,farLegLW,farLegA,sc('feet'),ll,sl,ht,0,footHalo,viewCos);
+dot(xHipX,xHipY,tFarLeg,sc('legs'));
+dot(xK.x,xK.y,tFarKnee,sc('legs'));
+segG(xShoX,xShoY, xE.x,xE.y,   tFarArm,    tFarElbow,  sc('arms'));
+segG(xE.x,xE.y,   xH.x,xH.y,   tFarElbow,  tFarHand,   sc('arms'));
+dot(xShoX,xShoY,tFarArm,sc('arms'));
+dot(xE.x,xE.y,tFarElbow,sc('arms'));
+dot(xH.x,xH.y,tFarHand,sc('arms'),1.35);
+
+// Spine + crossbars (middle layer, normal weight)
+ctx.lineWidth=lw; ctx.globalAlpha=am; ctx.strokeStyle=sc('body');
+ctx.beginPath();ctx.moveTo(hipX,hipY);ctx.quadraticCurveTo(spCtrlX,spCtrlY,sX,sY);ctx.stroke();
+// Hip & shoulder crossbar gradients: far end (faded) → near end (solid)
+const bodyHex=sc('body');
+const [farHX,farHY,nearHX,nearHY] = frontCloser ? [bHipX,bHipY,fHipX,fHipY] : [fHipX,fHipY,bHipX,bHipY];
+let grad=ctx.createLinearGradient(farHX,farHY,nearHX,nearHY);
+grad.addColorStop(0,hexRgba(bodyHex,0.38)); grad.addColorStop(1,bodyHex);
+ctx.strokeStyle=grad; ctx.beginPath(); ctx.moveTo(bHipX,bHipY); ctx.lineTo(fHipX,fHipY); ctx.stroke();
+const [farSX,farSY,nearSX,nearSY] = armFrontCloser ? [bShoX,bShoY,fShoX,fShoY] : [fShoX,fShoY,bShoX,bShoY];
+grad=ctx.createLinearGradient(farSX,farSY,nearSX,nearSY);
+grad.addColorStop(0,hexRgba(bodyHex,0.38)); grad.addColorStop(1,bodyHex);
+ctx.strokeStyle=grad; ctx.beginPath(); ctx.moveTo(bShoX,bShoY); ctx.lineTo(fShoX,fShoY); ctx.stroke();
+
+// Near limbs last (full weight + full opacity, on top)
+segG(nHipX,nHipY, nK.x,nK.y,   tNearLeg,   tNearKnee,  sc('legs'));
+segG(nK.x,nK.y,   nAn.x,nAn.y, tNearKnee,  tNearAnkle, sc('legs'));
+if(fs>0) drawFoot(ctx,nAn.x,nAn.y,nPhase,fs,dir,nearLegLW,nearLegA,sc('feet'),ll,sl,ht,0,footHalo,viewCos);
+dot(nHipX,nHipY,tNearLeg,sc('legs'));
+dot(nK.x,nK.y,tNearKnee,sc('legs'));
+
+// Head depth vars — headPendulum swing affects head opacity, size, weight when rotated
+const headPend=p.headPendulum||0;
+const headNormScale=Math.max(HW,SW,headMaxFwd,1);
+const normHD=Math.max(-1,Math.min(1,headDepth/headNormScale));
+const headAlpha=Math.min(1.0,1.0+0.35*normHD)*am;
+const headLW=lw*Math.max(0.70,1.0+0.20*normHD);
+const headR=hs*(1+0.06*normHD);
+const drawHead=()=>{
+ctx.lineWidth=headLW; ctx.globalAlpha=headAlpha;
+if(headHalo){ctx.strokeStyle=haloColor;ctx.lineWidth=headLW*2.0;ctx.beginPath();ctx.arc(hdX,hdY,headR,0,TAU);ctx.stroke();ctx.lineWidth=headLW;}
 ctx.strokeStyle=sc('head');
-ctx.beginPath(); ctx.arc(hdX,hdY,hs,0,TAU); ctx.stroke();
-ctx.globalAlpha=0.10*am; ctx.fill();
+ctx.beginPath(); ctx.arc(hdX,hdY,headR,0,TAU); ctx.stroke();
+ctx.globalAlpha=0.10*headAlpha; ctx.fillStyle=col.fill; ctx.fill();
+ctx.save();
+ctx.strokeStyle=sc('head'); ctx.lineWidth=headLW*0.45; ctx.globalAlpha=0.28*headAlpha;
+ctx.beginPath(); ctx.arc(hdX,hdY,headR*0.96,0,TAU); ctx.clip();
+const headYawSin=Math.sin(headTheta)*dir;
+const pitchAngle=headYawSin*0.7;
+const pitchArcOff=pitchAngle*headR*Math.abs(sinA)*0.85;
+ctx.translate(hdX,hdY);
+ctx.rotate(pitchAngle*cosA);
+const arcOff=headYawSin*headR*0.18;
+const lat=headR*0.707;
+ctx.beginPath(); ctx.moveTo(-headR,-lat); ctx.quadraticCurveTo(0,-lat+arcOff+pitchArcOff,headR,-lat); ctx.stroke();
+ctx.beginPath(); ctx.moveTo(-headR,0);    ctx.quadraticCurveTo(0,arcOff+pitchArcOff,     headR,0);    ctx.stroke();
+ctx.beginPath(); ctx.moveTo(-headR,lat);  ctx.quadraticCurveTo(0,lat+arcOff+pitchArcOff, headR,lat);  ctx.stroke();
+ctx.globalAlpha=0.10*headAlpha;
+ctx.beginPath(); ctx.moveTo(-headR,-lat); ctx.quadraticCurveTo(0,-lat-arcOff-pitchArcOff,headR,-lat); ctx.stroke();
+ctx.beginPath(); ctx.moveTo(-headR,0);    ctx.quadraticCurveTo(0,-arcOff-pitchArcOff,    headR,0);    ctx.stroke();
+ctx.beginPath(); ctx.moveTo(-headR,lat);  ctx.quadraticCurveTo(0,lat-arcOff-pitchArcOff, headR,lat);  ctx.stroke();
+for(let i=0;i<4;i++){
+  const mRx=headR*Math.abs(Math.sin(va+i*Math.PI/4));
+  const fc=Math.cos(i*Math.PI/4);
+  if(mRx>1.5){
+    const rightFront=fc>0.05, leftFront=fc<-0.05;
+    ctx.globalAlpha=0.28*headAlpha;
+    ctx.beginPath();
+    if(rightFront)     ctx.ellipse(0,0,mRx,headR,0,-Math.PI/2, Math.PI/2);
+    else if(leftFront) ctx.ellipse(0,0,mRx,headR,0, Math.PI/2,3*Math.PI/2);
+    else               ctx.ellipse(0,0,mRx,headR,0,0,TAU);
+    ctx.stroke();
+    if(rightFront||leftFront){
+      ctx.globalAlpha=0.10*headAlpha;
+      ctx.beginPath();
+      if(rightFront) ctx.ellipse(0,0,mRx,headR,0, Math.PI/2,3*Math.PI/2);
+      else           ctx.ellipse(0,0,mRx,headR,0,-Math.PI/2, Math.PI/2);
+      ctx.stroke();
+    }
+  } else {
+    ctx.globalAlpha=0.28*headAlpha;
+    ctx.beginPath();ctx.moveTo(0,-headR);ctx.lineTo(0,headR);ctx.stroke();
+  }
+}
+ctx.restore();
+};
+
+// Near arm depth-ordered against head: draw whichever is farther first, closer one last (on top).
+const nearArmDepth=armFrontCloser ? fArmDepth : bArmDepth;
+if(nearArmDepth>headDepth) drawHead();
+segG(nShoX,nShoY, nE.x,nE.y,   tNearArm,   tNearElbow, sc('arms'));
+segG(nE.x,nE.y,   nH.x,nH.y,   tNearElbow, tNearHand,  sc('arms'));
+dot(nShoX,nShoY,tNearArm,sc('arms'));
+dot(nE.x,nE.y,tNearElbow,sc('arms'));
+dot(nH.x,nH.y,tNearHand,sc('arms'),1.35);
+if(nearArmDepth<=headDepth) drawHead();
 ctx.restore();
 }
 
@@ -416,6 +639,19 @@ const dpr = canvas.width / W;
 ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 const col = FIG_COLORS[st.figureIdx], bg = BG_COLORS[st.bgIdx];
 const dir = st.flipDir ? -1 : 1, light = bg.light !== false;
+const T_r = THEMES[st.themeIdx || 0];
+const _lc = '#E6E6E6';
+let drawCol = col;
+if (!bg.light) {
+  if (isDark(col.stroke)) {
+    drawCol = {...col, stroke:_lc, fill:'rgba(230,230,230,0.06)',
+      ...(col.parts ? {parts:Object.fromEntries(Object.entries(col.parts).map(([k,v])=>[k,isDark(v)?_lc:v]))} : {})};
+  } else if (col.parts) {
+    let _chg=false; const _np={};
+    for(const [k,v] of Object.entries(col.parts)){if(isDark(v)){_np[k]=T_r.border;_chg=true;}else _np[k]=v;}
+    if(_chg) drawCol={...col,parts:_np};
+  }
+}
 const N = cycLen(p.fps, p.speed), snapStep = TAU/N*p.animOn;
 const snappedRaw = Math.round(rawPhase/snapStep)*snapStep;
 const tN = ((snappedRaw%TAU)+TAU)%TAU/TAU;
@@ -464,7 +700,7 @@ if(st.tickMode==='ruler'){
 }
 if(st.showShadow){
 const bob=Math.abs(Math.sin(phase))*p.bounce, sw=Math.max(p.legLen*0.55-bob*0.3,12);
-ctx.save();ctx.globalAlpha=0.18;ctx.fillStyle=col.stroke;
+ctx.save();ctx.globalAlpha=0.18;ctx.fillStyle=drawCol.stroke;
 ctx.beginPath();ctx.ellipse(cx,GY+4,sw,5,0,0,TAU);ctx.fill();ctx.restore();
 }
 if(st.footDots&&!forExport){
@@ -494,9 +730,9 @@ const gc=forExport?0:(p.ghostTrail|0);
 for(let g=gc;g>=1;g--){
 const pN2=((snappedRaw-g*0.28)%TAU+TAU)%TAU/TAU;
 const gPh=applyFeel(pN2,p.feel)*TAU;
-drawFigure(ctx,computePose(gPh,cx,p,dir),p,col,dir,gPh,0.28*(gc-g+1)/gc);
+drawFigure(ctx,computePose(gPh,cx,p,dir),p,drawCol,dir,gPh,0.28*(gc-g+1)/gc);
 }
-drawFigure(ctx,computePose(phase,cx,p,dir),p,col,dir,phase);
+drawFigure(ctx,computePose(phase,cx,p,dir),p,drawCol,dir,phase);
 } else {
 drawGuineaPig(ctx,cx,GY,phase,dir,p.legLen,marsvinImg);
 }
@@ -581,9 +817,16 @@ ctx.fillText('● drawing  ○ held',cw-4,ch-2);
 const TAB_SLIDERS = {
 body:[
 {key:'legLen',        label:'Leg Length',     min:35,  max:110,step:1,   unit:'px'},
-{key:'armLen',        label:'Arm Length',     min:20,  max:80, step:1,   unit:'px'},
+{key:'armLen',        label:'Arm Length',     min:20,  max:80, step:1,   unit:'px',
+ expand:[
+   {key:'armRaise', label:'Arm Raise', min:0, max:180, step:1, unit:'°', hint:'Raises arms sideways · 90° T-pose · 180° above head'},
+ ]},
 {key:'torsoLen',      label:'Torso',          min:20,  max:80, step:1,   unit:'px'},
-{key:'headSize',      label:'Head Size',      min:8,   max:30, step:1,   unit:'px'},
+{key:'headSize', label:'Head Size', min:8, max:30, step:1, unit:'px',
+ expand:[
+   {key:'headAngle', label:'Neck Angle', min:-30, max:30, step:1, unit:'°',
+    hint:'0 = straight up · + = tilts forward · − = tilts back'},
+ ]},
 {key:'footSize',      label:'Foot Size',      min:0,   max:22, step:1,   unit:'px'},
 {key:'lineWidth',     label:'Line Weight',    min:1,   max:8,  step:0.5, unit:'px'},
 {key:'hipSway',       label:'Hip Width',      min:0,   max:16, step:0.5, unit:'px'},
@@ -591,16 +834,27 @@ body:[
 ],
 walk:[
 {key:'speed',     label:'Speed',       min:0.2,max:3,  step:0.05,unit:'×'},
-{key:'stepLength',label:'Step Length', min:0,  max:55, step:1,   unit:'px', computeMax:p=>Math.floor(p.legLen*0.97)},
+{key:'stepLength',label:'Step Length', min:0,  max:55, step:1,   unit:'px', computeMax:p=>Math.floor(p.legLen*0.97),
+ expand:[
+   {key:'stepWidth', label:'Step Width', min:0, max:20, step:0.5, unit:'px', hint:'Lateral foot spread'},
+ ]},
 {key:'kneeLift',  label:'Knee Lift',   min:0,  max:100,step:1,   unit:'%'},
 {key:'footLift',  label:'Foot Lift',   min:0,  max:1,  step:0.05,unit:''},
 {key:'bounce',    label:'Bounce',      min:0,  max:20, step:0.5, unit:''},
-{key:'armSwing',  label:'Arm Swing',   min:0,  max:50, step:1,   unit:'px'},
+{key:'armSwing',  label:'Arm Swing',   min:0,  max:50, step:1,   unit:'px',
+ expand:[
+   {key:'armDirection', label:'Direction', min:0, max:20, step:1, unit:'px', hint:'Arms follow shoulder rotation — higher values angle forearms toward body center'},
+ ]},
 {key:'heelToe',   label:'Toe/Heel',    min:-1, max:1,  step:0.05,unit:''},
 ],
 style:[
 {key:'leanAngle',    label:'Lean',          min:-25,max:25, step:1,  unit:'°'},
 {key:'bodyTilt',     label:'Body Tilt',      min:0,  max:22, step:0.5,unit:'°'},
+{key:'spineBend',    label:'Spine Curve',    min:0,  max:50, step:1,  unit:'px',
+ expand:[
+   {key:'spineDir', label:'Direction', min:-10, max:10, step:0.5, unit:'',
+    hint:'0 = arches both ways · + = forward arch only · − = backward arch only'},
+ ]},
 {key:'legBend',      label:'Leg Bend',       min:-15,max:28, step:1,  unit:'px'},
 {key:'armBend',      label:'Arm Bend',       min:0,  max:60, step:1,  unit:'°'},
 {key:'headBob',      label:'Head Bob',       min:0,  max:14, step:0.5,unit:'px'},
@@ -611,7 +865,7 @@ style:[
 
 // ── System presets ────────────────────────────────────────────────────────────
 const SYSTEM_PRESETS = {
-Normal:  {speed:2.4, bounce:4,  armSwing:8, stepLength:24,kneeLift:25,torsoLen:45,legLen:70,armLen:54,headSize:14,footSize:10,lineWidth:3,legBend:4,  armBend:15,leanAngle:2, bodyTilt:1, hipSway:1,  shoulderWidth:2,  headBob:0,headPendulum:1, footLift:0.1,heelToe:0.8, feel:0.5},
+Normal:  {speed:2.4, bounce:4,  armSwing:8, stepLength:24,kneeLift:25,torsoLen:45,legLen:70,armLen:54,headSize:14,footSize:10,lineWidth:3,legBend:4,  armBend:15,leanAngle:2, bodyTilt:1, hipSway:7,  shoulderWidth:10, headBob:0,headPendulum:1, footLift:0.1,heelToe:0.8, feel:0.5,viewAngle:0},
 March:   {speed:1.3, bounce:13, armSwing:36,stepLength:20,kneeLift:55,torsoLen:46,legLen:68,armLen:46,headSize:14,lineWidth:3,  legBend:5,  armBend:30,leanAngle:3, bodyTilt:6, hipSway:0,  shoulderWidth:0,  headBob:4,headPendulum:0, heelToe:1.0, feel:0.6},
 Sneak:   {speed:0.55,bounce:3,  armSwing:10,stepLength:14,kneeLift:35,torsoLen:36,legLen:68,armLen:46,headSize:14,lineWidth:3,  legBend:18, armBend:40,leanAngle:20,bodyTilt:5, hipSway:2,  shoulderWidth:2,  headBob:0,headPendulum:7, heelToe:-0.7,feel:0.3},
 Strut:   {speed:0.75,bounce:18, armSwing:28,stepLength:32,kneeLift:10,torsoLen:44,legLen:68,armLen:46,headSize:14,lineWidth:3,  legBend:4,  armBend:20,leanAngle:-6,bodyTilt:11,hipSway:11, shoulderWidth:8,  headBob:5,headPendulum:6, heelToe:0.4, feel:0.7},
@@ -621,11 +875,11 @@ Toddler: {speed:1.1, bounce:16, armSwing:14,stepLength:14,kneeLift:25,torsoLen:3
 
 // ── Defaults ──────────────────────────────────────────────────────────────────
 const DEF_PARAMS = {
-legLen:68,armLen:46,torsoLen:44,headSize:14,footSize:12,lineWidth:3,
-legBend:4,armBend:15,   // legBend:4 gives the knee a natural forward lean
-speed:1,stepLength:24,kneeLift:20,footLift:0,bounce:6,armSwing:20,heelToe:0.8,
-leanAngle:0,bodyTilt:0,hipSway:0,shoulderWidth:0,headBob:2,headPendulum:2,ghostTrail:0,
-fps:24,animOn:1,feel:0.5,
+legLen:70,armLen:54,torsoLen:45,headSize:14,footSize:10,lineWidth:3,
+legBend:4,armBend:15,armRaise:0,armDirection:0,spineBend:0,spineDir:0,
+speed:2.4,stepLength:24,stepWidth:7,kneeLift:25,footLift:0.1,bounce:4,armSwing:8,heelToe:0.8,
+leanAngle:2,bodyTilt:1,hipSway:7,shoulderWidth:10,headBob:0,headPendulum:1,headAngle:0,ghostTrail:0,
+fps:24,animOn:1,feel:0.5,viewAngle:0,
 };
 const DEF_STYLE = {figureIdx:0,bgIdx:0,showGrid:false,showShadow:false,footDots:false,flipDir:false,loco:'place',themeIdx:0,tickMode:'step'};
 // figureIdx:0 = Ink (dark, readable on paper)   bgIdx:0 = Paper (warm cream)
@@ -728,21 +982,62 @@ const IconThemeSassy = () => (
 const THEME_ICONS = [<IconThemeDefault/>, <IconThemeCyber/>, <IconThemeSassy/>];
 
 // ── Shared UI helpers ─────────────────────────────────────────────────────────
-function SliderGrid({sliders, params, onChange}) {
+function SliderGrid({sliders, params, onChange, expanded, onToggle}) {
+// Flatten slider list, inserting expanded sub-sliders after their parent
+const items = [];
+sliders.forEach(s => {
+  items.push(s);
+  if (s.expand && expanded?.has(s.key)) {
+    s.expand.forEach(sub => items.push({...sub, _child: true, _parentKey: s.key}));
+  }
+});
 return (
-<div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px 24px'}}>
-{sliders.map(s=>(
-<div key={s.key} style={{display:'flex',flexDirection:'column',gap:2}}>
-<div style={{display:'flex',justifyContent:'space-between',fontSize:10,
+<div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'6px 16px'}}>
+{items.map(s=>(
+<div key={s.key} style={{display:'flex',flexDirection:'column',gap:2,
+  ...(s._child ? {gridColumn:'span 2', paddingLeft:16, borderLeft:'2px solid var(--border-lt)', marginTop:-4} : {})}}>
+<div style={{display:'flex',justifyContent:'space-between',fontSize:s._child?9:10,
 letterSpacing:'0.07em',color:'var(--ink2)'}}>
-<span style={{textTransform:'uppercase'}}>{s.label}</span>
-<span style={{color:'var(--ink3)'}}>{params[s.key]}{s.unit}</span>
+  <div style={{display:'flex',alignItems:'center',gap:4}}>
+    {s._child && <span style={{color:'var(--ink4)',fontSize:9,marginRight:1}}>↳</span>}
+    <span style={{textTransform:'uppercase'}}>{s.label}</span>
+    {s.expand && (
+      <button onClick={()=>onToggle(s.key)} style={{
+        background:expanded?.has(s.key)?'var(--blue)':'transparent',
+        border:`1px solid ${expanded?.has(s.key)?'var(--blue)':'var(--border)'}`,
+        color:expanded?.has(s.key)?'var(--paper)':'var(--ink3)',
+        borderRadius:2,padding:'0 5px',cursor:'pointer',
+        fontSize:9,lineHeight:'14px',fontFamily:'inherit',userSelect:'none',flexShrink:0}}>
+        {expanded?.has(s.key)?'−':'+'}
+      </button>
+    )}
+  </div>
+  <span style={{color:'var(--ink3)'}}>{params[s.key]}{s.unit}</span>
 </div>
-<input type="range" min={s.min} max={s.computeMax?s.computeMax(params):s.max} step={s.step} value={params[s.key]}
+<input type="range" min={s.min} max={s.computeMax?s.computeMax(params):s.max} step={s.step} value={params[s.key]??0}
 onChange={e=>onChange(s.key,+e.target.value)}/>
+{s.hint && <div style={{fontSize:8,color:'var(--ink4)',marginTop:1,fontStyle:'italic'}}>{s.hint}</div>}
 </div>
 ))}
 </div>
+);
+}
+
+// ── View angle indicator — top-down schematic showing camera position ─────────
+function ViewAngleIndicator({ angle, T }) {
+const va = (angle||0) * Math.PI / 180;
+const cx=24, cy=24, R=17;
+const camX=cx+R*Math.cos(va), camY=cy-R*Math.sin(va);
+const dx=cx-camX, dy=cy-camY, len=Math.sqrt(dx*dx+dy*dy)||1;
+const tipX=camX+(dx/len)*(R-8), tipY=camY+(dy/len)*(R-8);
+return (
+<svg width="48" height="48" viewBox="0 0 48 48" style={{flexShrink:0,opacity:0.9}}>
+  <circle cx={cx} cy={cy} r={R} fill="none" stroke={T.ink3} strokeWidth="0.6" strokeDasharray="2,3"/>
+  <ellipse cx={cx} cy={cy} rx={4} ry={6} fill={T.ink} fillOpacity="0.1" stroke={T.ink} strokeWidth="1.2" strokeOpacity="0.5"/>
+  <circle cx={cx} cy={cy-8} r={1.8} fill={T.ink} fillOpacity="0.45"/>
+  <circle cx={camX} cy={camY} r={3} fill={T.blue}/>
+  <line x1={camX} y1={camY} x2={tipX} y2={tipY} stroke={T.blue} strokeWidth="1.5" strokeOpacity="0.55"/>
+</svg>
 );
 }
 
@@ -781,6 +1076,7 @@ const [importErr,     setImportErr]     = useState(false);
 const [copyMsg,       setCopyMsg]       = useState('');
 const [marsvinMode,   setMarsvinMode]   = useState(false);
 const [marsvinHue,    setMarsvinHue]    = useState(0);
+const [expandedSliders, setExpandedSliders] = useState(new Set());
 const marsvinImgRef = useRef(null);
 useEffect(() => {
   const img = new Image();
@@ -789,6 +1085,7 @@ useEffect(() => {
 }, []);
 
 live.current = {params,style,playback,keyPoses,onionOn,onionCount,marsvinMode};
+const toggleExpand = key => setExpandedSliders(s => { const n=new Set(s); n.has(key)?n.delete(key):n.add(key); return n; });
 const setP  = (key,val) => { setActivePreset(null); setParams(p=>{
   const next={...p,[key]:val};
   if(key==='legLen') next.stepLength=Math.min(next.stepLength, Math.floor(val*0.97));
@@ -992,7 +1289,7 @@ borderRadius:3,padding:'3px 8px',cursor:'pointer',
 fontSize:9,letterSpacing:'0.1em',fontFamily:'inherit',textTransform:'uppercase',transition:'all 0.12s',
 });
 const chip=on=>({...tgl(on),padding:'5px 14px',fontSize:10});
-const tabBody={padding:'14px 16px',display:'flex',flexDirection:'column',gap:16,overflowY:'auto',maxHeight:248,background:T.paperLt};
+const tabBody={padding:'10px 14px',display:'flex',flexDirection:'column',gap:10,overflowY:'auto',maxHeight:268,background:T.paperLt};
 const sec={display:'flex',flexDirection:'column',gap:8};
 const secLbl={fontSize:9,letterSpacing:'0.18em',color:T.ink3,textTransform:'uppercase'};
 const divider={width:'100%',height:1,background:T.borderLt,margin:'2px 0'};
@@ -1065,7 +1362,7 @@ boxShadow:`0 4px 16px ${ha(T.ink,0.18)}`,
             borderRadius: c.parts ? 2 : '50%',
             background: c.parts
               ? 'linear-gradient(to bottom,#2E7D32 33%,#E8A020 33% 66%,#B91C1C 66%)'
-              : c.stroke,
+              : (!BG_COLORS[style.bgIdx].light && isDark(c.stroke) ? '#E6E6E6' : c.stroke),
             cursor:'pointer',padding:0,
             border:i===style.figureIdx?`2px solid ${T.blue}`:`2px solid ${T.borderLt}`}}/>
       ))}
@@ -1154,6 +1451,25 @@ boxShadow:`0 4px 16px ${ha(T.ink,0.18)}`,
     ))}
   </div>
 
+  {/* View Angle — always visible */}
+  <div style={{display:'flex',alignItems:'center',gap:12,
+               padding:'8px 16px',borderBottom:`1px solid ${T.border}`,
+               background:T.paperDk}}>
+    <div style={{flex:1,display:'flex',flexDirection:'column',gap:2}}>
+      <div style={{display:'flex',justifyContent:'space-between',fontSize:10,
+                   letterSpacing:'0.07em',color:'var(--ink2)'}}>
+        <span style={{textTransform:'uppercase'}}>View Angle</span>
+        <span style={{color:'var(--ink3)'}}>{params.viewAngle}°</span>
+      </div>
+      <input type="range" min={0} max={360} step={1} value={params.viewAngle}
+        onChange={e=>setP('viewAngle',+e.target.value)}/>
+      <div style={{display:'flex',justifyContent:'space-between',fontSize:8,color:'var(--ink4)',marginTop:1}}>
+        <span>Side</span><span>Front</span><span>Side</span><span>Back</span><span>Side</span>
+      </div>
+    </div>
+    <ViewAngleIndicator angle={params.viewAngle} T={T}/>
+  </div>
+
   {/* Tab content */}
   <div style={{background:T.paperLt,minHeight:258}}>
 
@@ -1185,11 +1501,15 @@ boxShadow:`0 4px 16px ${ha(T.ink,0.18)}`,
 
   {!marsvinMode&&<>
 
-    {tab==='body'&&<div style={tabBody}><SliderGrid sliders={TAB_SLIDERS.body} params={params} onChange={setP}/></div>}
+    {tab==='body'&&(
+      <div style={tabBody}>
+        <SliderGrid sliders={TAB_SLIDERS.body} params={params} onChange={setP} expanded={expandedSliders} onToggle={toggleExpand}/>
+      </div>
+    )}
 
     {tab==='walk'&&(
       <div style={tabBody}>
-        <SliderGrid sliders={TAB_SLIDERS.walk} params={params} onChange={setP}/>
+        <SliderGrid sliders={TAB_SLIDERS.walk} params={params} onChange={setP} expanded={expandedSliders} onToggle={toggleExpand}/>
         <div style={divider}/>
         <p style={{fontSize:9,color:T.ink3,lineHeight:1.65,fontStyle:'italic',margin:0}}>
           Toe/Heel: −1 toe lands first · 0 flat foot · +1 heel strikes first
@@ -1197,7 +1517,7 @@ boxShadow:`0 4px 16px ${ha(T.ink,0.18)}`,
       </div>
     )}
 
-    {tab==='style'&&<div style={tabBody}><SliderGrid sliders={TAB_SLIDERS.style} params={params} onChange={setP}/></div>}
+    {tab==='style'&&<div style={tabBody}><SliderGrid sliders={TAB_SLIDERS.style} params={params} onChange={setP} expanded={expandedSliders} onToggle={toggleExpand}/></div>}
 
     {tab==='timing'&&(
       <div style={tabBody}>
