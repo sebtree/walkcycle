@@ -285,7 +285,11 @@ const rot   = Math.sin(phase) * dir;
 const tiltDY = rot * hipSway * 0.4;
 const fHipX = hipX + rot*hipSway, fHipY = hipY + tiltDY;
 const bHipX = hipX - rot*hipSway, bHipY = hipY - tiltDY;
-const tilt = Math.sin(phase)*(bodyTilt*Math.PI/180)*dir + leanAngle*Math.PI/180;
+const bodyTiltDelayRad = (p.bodyTiltDelay||0) * Math.PI/180;
+const bodyTiltEaseVal  = p.bodyTiltEase || 1;
+const btRaw = Math.sin(phase - bodyTiltDelayRad);
+const btEs  = (bodyTiltEaseVal !== 1 && btRaw !== 0) ? (btRaw > 0 ? Math.pow(btRaw, 1/bodyTiltEaseVal) : -Math.pow(-btRaw, 1/bodyTiltEaseVal)) : btRaw;
+const tilt = btEs*(bodyTilt*Math.PI/180)*dir + leanAngle*Math.PI/180;
 const spineBend = p.spineBend || 0;
 const spineDir  = p.spineDir  || 0;
 const tiltF = Math.sin(tilt);
@@ -771,10 +775,13 @@ ctx.restore();
 // Dense dots = moving slowly (dwelling at that pose).
 // Sparse dots = moving quickly through.
 // Filled dot = drawing frame; hollow = held frame (on 2s).
-function drawTimingChart(canvas, p) {
+function drawTimingChart(canvas, p, currentPhase) {
 const ctx=canvas.getContext('2d'); const cw=canvas.width,ch=canvas.height;
 ctx.clearRect(0,0,cw,ch); ctx.fillStyle='#EAE4D4'; ctx.fillRect(0,0,cw,ch);
 const N=cycLen(p.fps,p.speed);
+const curFrame = currentPhase !== undefined
+  ? Math.round(((currentPhase % TAU) + TAU) % TAU / TAU * N) % N
+  : -1;
 const laneH=22,gap=5,padX=34,padY=4,padR=8,chartW=cw-padX-padR;
 const bodyVals=[],footVals=[],armVals=[];
 for(let i=0;i<N;i++){
@@ -790,6 +797,11 @@ const lanes=[
 {label:'Foot',data:norm(footVals),invert:false,color:'#3D8B6A'},
 {label:'Arm', data:norm(armVals), invert:false,color:'#C07830'},
 ];
+const totalH=lanes.length*(laneH+gap);
+if(curFrame>=0){
+const curX=padX+(curFrame+0.5)/N*chartW;
+ctx.fillStyle='rgba(0,0,0,0.10)'; ctx.fillRect(curX-0.5,padY,1,totalH+4);
+}
 lanes.forEach(({label,data,invert,color},li)=>{
 const baseY=padY+li*(laneH+gap),trackY=baseY+10,trackH=laneH-10;
 ctx.fillStyle='#6B5E4A'; ctx.font='8px Courier New'; ctx.textAlign='right';
@@ -804,8 +816,10 @@ ctx.strokeStyle=color+'50'; ctx.lineWidth=1; ctx.stroke();
 for(let i=0;i<N;i++){
 const x=padX+(i+0.5)/N*chartW, n=invert?1-data[i]:data[i], y=trackY+2+(1-n)*(trackH-4);
 const isDrw=i%p.animOn===0;
-ctx.beginPath(); ctx.arc(x,y,isDrw?2.5:1.5,0,TAU);
-if(isDrw){ctx.fillStyle=color;ctx.fill();}
+const isCur=i===curFrame;
+if(isCur){ctx.beginPath();ctx.arc(x,y,5,0,TAU);ctx.fillStyle='white';ctx.fill();}
+ctx.beginPath(); ctx.arc(x,y,isCur?3:isDrw?2.5:1.5,0,TAU);
+if(isDrw||isCur){ctx.fillStyle=isCur?color:color;ctx.fill();}
 else{ctx.strokeStyle=color+'70';ctx.lineWidth=0.8;ctx.stroke();}
 }
 });
@@ -863,7 +877,11 @@ walk:[
 ],
 style:[
 {key:'leanAngle',    label:'Lean',          min:-25,max:25, step:1,  unit:'°'},
-{key:'bodyTilt',     label:'Body Tilt',      min:0,  max:22, step:0.5,unit:'°'},
+{key:'bodyTilt',     label:'Body Tilt',      min:0,  max:22, step:0.5,unit:'°',
+ expand:[
+   {key:'bodyTiltDelay', label:'Follow', min:-45, max:45,  step:1,   unit:'°', hint:'Tilt leads (−) or follows (+) body'},
+   {key:'bodyTiltEase',  label:'Ease',   min:0.3, max:3.0, step:0.1, unit:'×', hint:'< 1 = crisp · 1 = natural · > 1 = heavy'},
+ ]},
 {key:'spineBend',    label:'Spine Curve',    min:0,  max:50, step:1,  unit:'px',
  expand:[
    {key:'spineDir', label:'Direction', min:-10, max:10, step:0.5, unit:'',
@@ -893,7 +911,7 @@ Toddler: {speed:1.1, bounce:16, armSwing:14,stepLength:14,kneeLift:25,torsoLen:3
 // ── Defaults ──────────────────────────────────────────────────────────────────
 const DEF_PARAMS = {
 legLen:70,armLen:54,torsoLen:45,headSize:14,footSize:10,lineWidth:3,
-legBend:4,armBend:15,legRatio:0,armRatio:0,armRaise:0,armDirection:0,armDelay:0,armEase:1,spineBend:0,spineDir:0,
+legBend:4,armBend:15,legRatio:0,armRatio:0,armRaise:0,armDirection:0,armDelay:0,armEase:1,bodyTiltDelay:0,bodyTiltEase:1,spineBend:0,spineDir:0,
 speed:2.4,stepLength:24,stepWidth:7,kneeLift:25,footLift:0.1,bounce:4,armSwing:8,heelToe:0.8,
 leanAngle:2,bodyTilt:1,hipSway:7,shoulderWidth:10,headBob:0,headPendulum:1,headAngle:0,headDelay:0,ghostTrail:0,
 fps:24,animOn:1,feel:0.5,viewAngle:0,
@@ -1101,7 +1119,7 @@ useEffect(() => {
   img.onload = () => { marsvinImgRef.current = img; };
 }, []);
 
-live.current = {params,style,playback,keyPoses,onionOn,onionCount,marsvinMode};
+live.current = {params,style,playback,keyPoses,onionOn,onionCount,marsvinMode,tab};
 const toggleExpand = key => setExpandedSliders(s => { const n=new Set(s); n.has(key)?n.delete(key):n.add(key); return n; });
 const setP  = (key,val) => { setActivePreset(null); setParams(p=>{
   const next={...p,[key]:val};
@@ -1191,6 +1209,7 @@ if(walkXRef.current<-90)  walkXRef.current=W+90;
 } else if(st.loco!=='walk') walkXRef.current=W/2;
 const cx=st.loco==='walk'?walkXRef.current:W/2;
 renderFrame(canvas,phaseRef.current,cx,p,st,{keyPoseState:kp,onion:{on:oo,count:oc},marsvinMode:live.current.marsvinMode,marsvinImg:marsvinImgRef.current});
+if(live.current.tab==='timing'&&chartRef.current) drawTimingChart(chartRef.current,p,phaseRef.current);
 const N=cycLen(p.fps,p.speed),snap=TAU/N*p.animOn;
 const frac=((Math.round(phaseRef.current/snap)*snap%TAU)+TAU)%TAU/TAU;
 if(scrubRef.current) scrubRef.current.style.left=`${frac*100}%`;
@@ -1202,7 +1221,7 @@ return ()=>cancelAnimationFrame(animRef.current);
 
 // Timing chart
 useEffect(()=>{
-if(tab==='timing'&&chartRef.current) drawTimingChart(chartRef.current,params);
+if(tab==='timing'&&chartRef.current) drawTimingChart(chartRef.current,params,phaseRef.current);
 },[tab,params.fps,params.animOn,params.feel,params.speed,params.stepLength,
 params.legLen,params.kneeLift,params.armSwing,params.bounce]);
 
