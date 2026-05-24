@@ -261,7 +261,9 @@ function computeLeg(phase, cx, hipX, hipY, thigh, shin, sl, kneeLift, footLift, 
 function computePose(phase, cx, p, dir) {
 const {stepLength,kneeLift,footLift,torsoLen,legLen,armLen,headSize,footSize,legBend,armBend,
 bodyTilt,hipSway,shoulderWidth=0,leanAngle,headBob,headPendulum,armSwing,bounce} = p;
-const thigh=legLen*0.52, shin=legLen*0.48, uArm=armLen*0.48, fArm=armLen*0.52;
+const legR=(p.legRatio||0)/100, armR=(p.armRatio||0)/100;
+const thigh=legLen*(0.52+legR), shin=legLen*(0.48-legR);
+const uArm=armLen*(0.48+armR), fArm=armLen*(0.52-armR);
 // stepWidth: lateral z-offset of feet. When wider than legLen, forward reach approaches zero.
 const footZ3d = p.stepWidth ?? hipSway;
 // Cap sl so IK never snaps. Also reduce max reach when feet are laterally offset (geometry).
@@ -292,8 +294,8 @@ const maxBend = torsoLen * 0.45;
 const clampedBend = Math.max(-maxBend, Math.min(maxBend, actualBend));
 const spineChord = Math.sqrt(Math.max(0, torsoLen*torsoLen - 4*clampedBend*clampedBend));
 const sX = hipX+Math.sin(tilt)*spineChord, sY = hipY-Math.cos(tilt)*spineChord;
-const spCtrlX = (hipX+sX)/2 + 2*clampedBend*Math.cos(tilt)*dir;
-const spCtrlY = (hipY+sY)/2 + 2*clampedBend*Math.sin(tilt)*dir;
+const spCtrlX = hipX*0.25 + sX*0.75 + 2*clampedBend*Math.cos(tilt)*dir;
+const spCtrlY = hipY*0.25 + sY*0.75 + 2*clampedBend*Math.sin(tilt)*dir;
 const neckLen = headSize*1.4;
 const neckTiltRad = (p.headAngle||0) * Math.PI/180;
 const swingAngle = headPendulum / Math.max(neckLen, 1);
@@ -816,10 +818,15 @@ ctx.fillText('● drawing  ○ held',cw-4,ch-2);
 // ── Slider definitions per tab ────────────────────────────────────────────────
 const TAB_SLIDERS = {
 body:[
-{key:'legLen',        label:'Leg Length',     min:35,  max:110,step:1,   unit:'px'},
+{key:'legLen', label:'Leg Length', min:35, max:110, step:1, unit:'px',
+ expand:[
+   {key:'legRatio', label:'Thigh / Shin', min:-15, max:15, step:1, unit:'%',
+    hint:'+ = longer thigh · − = longer shin'},
+ ]},
 {key:'armLen',        label:'Arm Length',     min:20,  max:80, step:1,   unit:'px',
  expand:[
-   {key:'armRaise', label:'Arm Raise', min:0, max:180, step:1, unit:'°', hint:'Raises arms sideways · 90° T-pose · 180° above head'},
+   {key:'armRaise', label:'Arm Raise',    min:0,   max:180, step:1, unit:'°', hint:'Raises arms sideways · 90° T-pose · 180° above head'},
+   {key:'armRatio', label:'Upper / Fore', min:-15, max:15,  step:1, unit:'%', hint:'+ = longer upper arm · − = longer forearm'},
  ]},
 {key:'torsoLen',      label:'Torso',          min:20,  max:80, step:1,   unit:'px'},
 {key:'headSize', label:'Head Size', min:8, max:30, step:1, unit:'px',
@@ -876,7 +883,7 @@ Toddler: {speed:1.1, bounce:16, armSwing:14,stepLength:14,kneeLift:25,torsoLen:3
 // ── Defaults ──────────────────────────────────────────────────────────────────
 const DEF_PARAMS = {
 legLen:70,armLen:54,torsoLen:45,headSize:14,footSize:10,lineWidth:3,
-legBend:4,armBend:15,armRaise:0,armDirection:0,spineBend:0,spineDir:0,
+legBend:4,armBend:15,legRatio:0,armRatio:0,armRaise:0,armDirection:0,spineBend:0,spineDir:0,
 speed:2.4,stepLength:24,stepWidth:7,kneeLift:25,footLift:0.1,bounce:4,armSwing:8,heelToe:0.8,
 leanAngle:2,bodyTilt:1,hipSway:7,shoulderWidth:10,headBob:0,headPendulum:1,headAngle:0,ghostTrail:0,
 fps:24,animOn:1,feel:0.5,viewAngle:0,
