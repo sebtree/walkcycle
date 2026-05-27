@@ -142,9 +142,11 @@ ctx.restore();
 //
 // The figure NEVER pauses at any feel value. Boundary conditions preserved:
 // applyFeel(0)=0, applyFeel(1)=1 (sin(4π)=0).
-function applyFeel(t, feel) {
-if (feel <= 0) return t;
-return t + feel * Math.sin(4 * Math.PI * t) / (6 * Math.PI);
+function applyFeel(t, feel, feelIn, feelOut) {
+const fi = feelIn ?? feel, fo = feelOut ?? feel;
+if (fi <= 0 && fo <= 0) return t;
+const s = Math.sin(4 * Math.PI * t);
+return t + (s > 0 ? fi : fo) * s / (6 * Math.PI);
 }
 const cycLen = (fps, speed) => Math.max(2, Math.round(fps * TAU / (speed * 2.5)));
 
@@ -262,7 +264,7 @@ function computeLeg(phase, cx, hipX, hipY, thigh, shin, sl, kneeLift, footLift, 
 // IK throughout — no mode switch, no discontinuities at transitions.
 function computePose(phase, cx, p, dir) {
 const {stepLength,kneeLift,footLift,torsoLen,legLen,armLen,headSize,footSize,legBend,armBend,
-bodyTilt,hipSway,shoulderWidth=0,leanAngle,headBob,headPendulum,armSwing,bounce} = p;
+bodyTilt,hipSway,shoulderWidth=0,leanAngle,headPendulum,armSwing,bounce} = p;
 const legR=(p.legRatio||0)/100, armR=(p.armRatio||0)/100;
 const thigh=legLen*(0.52+legR), shin=legLen*(0.48-legR);
 const uArm=armLen*(0.48+armR), fArm=armLen*(0.52-armR);
@@ -278,13 +280,14 @@ const stanceDx = Math.min(Math.abs(fFootX-cx), Math.abs(bFootX-cx));
 const k = Math.min(0.98, stanceDx / Math.max(legLen, 1));
 const dip = Math.min(legLen*(1-Math.sqrt(1-k*k))*(1+bounce*0.10), legLen*0.28);
 const hipX = cx, hipY = GY-legLen+dip;
-// hipSway: each hip swings forward/back (x) and dips/rises (y) — visible tilt from side view.
-// Forward hip shifts ahead (+x) and drops slightly (+y); back hip does the opposite.
-// tiltDY adds the vertical component so hips and shoulders visibly counter-rotate.
-const rot   = Math.sin(phase) * dir;
-const tiltDY = rot * hipSway * 0.4;
-const fHipX = hipX + rot*hipSway, fHipY = hipY + tiltDY;
-const bHipX = hipX - rot*hipSway, bHipY = hipY - tiltDY;
+const hipSwing      = p.hipSwing      ?? hipSway * 0.5;
+const hipLift       = p.hipLift       ?? (hipSway * 0.4);
+const shoulderSwing = p.shoulderSwing ?? shoulderWidth * 0.5;
+const shoulderLift  = p.shoulderLift  ?? (shoulderWidth * 0.3);
+const rot = Math.sin(phase) * dir;
+// Forward hip moves ahead in X and rises in Y (knee lifts = hip rises); back hip is opposite.
+const fHipX = hipX + rot * hipSwing, fHipY = hipY - rot * hipLift;
+const bHipX = hipX - rot * hipSwing, bHipY = hipY + rot * hipLift;
 const bodyTiltDelayRad = (p.bodyTiltDelay||0) * Math.PI/180;
 const bodyTiltEaseVal  = p.bodyTiltEase || 1;
 const btRaw = Math.sin(phase - bodyTiltDelayRad);
@@ -308,14 +311,13 @@ const swingAngle = headPendulum / Math.max(neckLen, 1);
 const headDelayRad = (p.headDelay||0) * Math.PI/180;
 const headTheta = neckTiltRad + Math.sin(phase - headDelayRad)*swingAngle;
 const hdX = sX + neckLen*Math.sin(headTheta)*dir;
-const hdY = sY - neckLen*Math.cos(headTheta) - Math.abs(Math.sin(phase*2))*headBob;
+const hdY = sY - neckLen*Math.cos(headTheta);
 const hdZ = 0;
 const headMaxFwd = Math.sin((Math.abs(leanAngle)+Math.abs(bodyTilt))*Math.PI/180)*spineChord
                  + neckLen*Math.sin(Math.abs(neckTiltRad)+swingAngle);
-// Shoulders counter-rotate: forward shoulder rises (+y reversed) and goes back (-x)
-const shouAmt = shoulderWidth;
-const fShoX = sX - rot*shouAmt, fShoY = sY + tiltDY*0.75;
-const bShoX = sX + rot*shouAmt, bShoY = sY - tiltDY*0.75;
+// Shoulders counter-rotate in X; counter-tilt in Y (shoulder drops when opposite hip rises).
+const fShoX = sX - rot * shoulderSwing, fShoY = sY + rot * shoulderLift;
+const bShoX = sX + rot * shoulderSwing, bShoY = sY - rot * shoulderLift;
 const sf = computeLeg(phase,        cx, fHipX, fHipY, thigh, shin, sl, kneeLift, footLift, legBend, footSize, legLen, dir);
 const sb = computeLeg(phase+Math.PI, cx, bHipX, bHipY, thigh, shin, sl, kneeLift, footLift, legBend, footSize, legLen, dir);
 const fAn=sf.ankle, fK=sf.knee, bAn=sb.ankle, bK=sb.knee;
@@ -336,6 +338,11 @@ const cosA=Math.cos(va), sinA=-Math.sin(va);
 const HW=hipSway, SW=shoulderWidth;
 // Per-joint arm z-offsets: base clearance + lateral raise contribution + direction (crossing)
 const armBaseZ = Math.max(SW, HW);
+// Rigid-rod: pelvic/shoulder rotation reduces Z depth so the bar can never project wider
+// than 2*HW or 2*SW at any viewing angle. Rotation capped at ~37° (sinT≤0.6) so the
+// front-view width stays ≥ 80% of the physical width even at maximum swing.
+const hipEffZ  = HW * Math.sqrt(Math.max(0, 1 - (rot * Math.min(0.6, hipSwing  / Math.max(HW, 0.001)))**2));
+const shouEffZ = SW * Math.sqrt(Math.max(0, 1 - (rot * Math.min(0.6, shoulderSwing / Math.max(SW, 0.001)))**2));
 // Arm crossing (armDir * rot): elbows cross moderately, hands cross more — gives visible
 // forearm follow-through angle. Both scale from the same rot*sin so symmetry is preserved.
 const fEZ_raw = armBaseZ + fAOut.eDzRaise + armDir * rot * Math.sin(fAOut.alpha) * 0.45;
@@ -348,10 +355,10 @@ const pose = {hipX,hipY,fHipX,bHipX,fHipY,bHipY,sX,sY,spCtrlX,spCtrlY,fShoX,fSho
   fDepth:0,bDepth:0,fArmDepth:0,bArmDepth:0,headDepth:0,fKDepth:0,bKDepth:0,
   fEDepth:0,bEDepth:0,fAnDepth:0,bAnDepth:0,fHDepth:0,bHDepth:0,
   fEZ,bEZ,fHZ,bHZ};
-pose.fDepth    = -(fHipX-cx)*sinA + HW*cosA;
-pose.bDepth    = -(bHipX-cx)*sinA - HW*cosA;
-pose.fArmDepth = -(fShoX-cx)*sinA + SW*cosA;
-pose.bArmDepth = -(bShoX-cx)*sinA - SW*cosA;
+pose.fDepth    = -(fHipX-cx)*sinA + hipEffZ*cosA;
+pose.bDepth    = -(bHipX-cx)*sinA - hipEffZ*cosA;
+pose.fArmDepth = -(fShoX-cx)*sinA + shouEffZ*cosA;
+pose.bArmDepth = -(bShoX-cx)*sinA - shouEffZ*cosA;
 pose.headDepth = -(hdX-cx)*sinA + hdZ*cosA;
 // Knees use footZ3d (same as ankles) so the full leg slopes consistently with step width
 pose.fKDepth   = -(fK.x-cx)*sinA + footZ3d*cosA;
@@ -366,10 +373,10 @@ if (va !== 0) {
   const proj = (x, z) => cx + (x-cx)*cosA + z*sinA;
   pose.hipX=proj(hipX,0); pose.sX=proj(sX,0); pose.spCtrlX=proj(spCtrlX,0); pose.hdX=proj(hdX,hdZ);
   // Knees now use footZ3d (same as ankles) for consistent leg slope
-  pose.fHipX=proj(fHipX,HW);  pose.fK={x:proj(fK.x,footZ3d),y:fK.y};  pose.fAn={x:proj(fAn.x,footZ3d),y:fAn.y};
-  pose.bHipX=proj(bHipX,-HW); pose.bK={x:proj(bK.x,-footZ3d),y:bK.y}; pose.bAn={x:proj(bAn.x,-footZ3d),y:bAn.y};
-  pose.fShoX=proj(fShoX,SW);  pose.fE={x:proj(fE.x,fEZ),y:fE.y};  pose.fH={x:proj(fH.x,fHZ),y:fH.y};
-  pose.bShoX=proj(bShoX,-SW); pose.bE={x:proj(bE.x,-bEZ),y:bE.y}; pose.bH={x:proj(bH.x,-bHZ),y:bH.y};
+  pose.fHipX=proj(fHipX,hipEffZ);  pose.fK={x:proj(fK.x,footZ3d),y:fK.y};  pose.fAn={x:proj(fAn.x,footZ3d),y:fAn.y};
+  pose.bHipX=proj(bHipX,-hipEffZ); pose.bK={x:proj(bK.x,-footZ3d),y:bK.y}; pose.bAn={x:proj(bAn.x,-footZ3d),y:bAn.y};
+  pose.fShoX=proj(fShoX,shouEffZ);  pose.fE={x:proj(fE.x,fEZ),y:fE.y};  pose.fH={x:proj(fH.x,fHZ),y:fH.y};
+  pose.bShoX=proj(bShoX,-shouEffZ); pose.bE={x:proj(bE.x,-bEZ),y:bE.y}; pose.bH={x:proj(bH.x,-bHZ),y:bH.y};
 }
 return pose;
 }
@@ -579,12 +586,104 @@ const BG_COLORS = [
 {name:'Dark',      bg:'#1A1815',light:false},
 {name:'Blush',     bg:'#FDE4F0',light:true},
 ];
+// ── Drawing schedule ──────────────────────────────────────────────────────────
+// Traditional animators fix a maximum number of unique drawings per cycle and
+// increase the hold (exposure) at slow speeds instead of adding more drawings.
+// Drawings are placed evenly in pose-space (feel-output), so holds are naturally
+// longer near key poses (slow motion) and shorter in between (fast motion).
+let _schedMemoKey = null, _schedMemoVal = null;
+function buildSchedule(p) {
+  const memoKey = `${p.fps}|${p.speed}|${p.animOn}|${p.feel}|${p.feelIn}|${p.feelOut}`;
+  if (memoKey === _schedMemoKey) return _schedMemoVal;
+
+  const N = cycLen(p.fps, p.speed);
+  const minHold = p.animOn;
+  const maxDrw = Math.min(
+    Math.max(4, Math.round(p.fps / minHold)),
+    Math.floor(N / minHold)
+  );
+
+  // Find the raw frame whose pose phase is closest to targetPh (circular distance).
+  const frameAtPhase = targetPh => {
+    let bestI = 0, bestD = Infinity;
+    for (let i = 0; i < N; i++) {
+      const ph = applyFeel(((i/N + PHASE_OFFSET) % 1), p.feel, p.feelIn, p.feelOut) * TAU;
+      const d = Math.min(Math.abs(ph - targetPh), TAU - Math.abs(ph - targetPh));
+      if (d < bestD) { bestD = d; bestI = i; }
+    }
+    return bestI;
+  };
+
+  // Lock in the 4 key pose frames — these are always present.
+  const keyFrameSet = new Set();
+  KEY_POSES.forEach(kp => keyFrameSet.add(frameAtPhase(kp.phase)));
+  const frames = new Set(keyFrameSet);
+
+  // BFS halving in pose space: place drawings at the physical midpoint between surrounding
+  // poses. Only subdivide if a frame was actually placed — a rejected interval is already
+  // too dense to fit anything in its halves either.
+  // Extended phase arithmetic: Passing2(TAU)→Contact uses ep=TAU*1.25 so the midpoint
+  // (TAU*1.125) reduces cleanly to TAU*0.125 via %TAU.
+  const KEY_PH = KEY_POSES.map(kp => kp.phase);
+  const queue = [
+    {sp: KEY_PH[0], ep: KEY_PH[1]},
+    {sp: KEY_PH[1], ep: KEY_PH[2]},
+    {sp: KEY_PH[2], ep: KEY_PH[3]},
+    {sp: KEY_PH[3], ep: KEY_PH[0] + TAU},
+  ];
+
+  while (frames.size < maxDrw && queue.length > 0) {
+    const {sp, ep} = queue.shift();
+    const midExt = (sp + ep) / 2;
+    const midFrame = frameAtPhase(midExt % TAU);
+
+    const sizeBefore = frames.size;
+    if (!frames.has(midFrame)) {
+      const sorted = [...frames, midFrame].sort((a, b) => a - b);
+      const idx = sorted.indexOf(midFrame);
+      const prev = sorted[(idx - 1 + sorted.length) % sorted.length];
+      const next = sorted[(idx + 1) % sorted.length];
+      const holdBefore = (midFrame - prev + N) % N;
+      const holdAfter  = (next - midFrame + N) % N;
+      if (holdBefore >= minHold && holdAfter >= minHold) frames.add(midFrame);
+    }
+
+    // Only subdivide if a new frame was actually placed; otherwise the interval
+    // is saturated and re-queuing it (even halved) produces the same result forever.
+    if (frames.size > sizeBefore && frames.size < maxDrw) {
+      queue.push({sp, ep: midExt});
+      queue.push({sp: midExt, ep});
+    }
+  }
+
+  const sorted = [...frames].sort((a, b) => a - b);
+  _schedMemoVal = sorted.map((frame, k) => {
+    const hold = k+1 < sorted.length ? sorted[k+1] - frame : N - frame + sorted[0];
+    const ph = applyFeel(((frame/N + PHASE_OFFSET) % 1), p.feel, p.feelIn, p.feelOut) * TAU;
+    return {frame, hold, ph};
+  });
+  _schedMemoKey = memoKey;
+  return _schedMemoVal;
+}
+// Returns the index in schedule of the drawing currently shown at rawPhase
+function findSchedIdx(sched, rawPhase, N) {
+  const target = ((rawPhase % TAU) + TAU) % TAU / TAU * N;
+  let best = 0, bestD = Infinity;
+  sched.forEach((s, k) => {
+    const d = Math.min(Math.abs(s.frame - target), N - Math.abs(s.frame - target));
+    if (d < bestD) { bestD = d; best = k; }
+  });
+  return best;
+}
+
 const KEY_POSES = [
-{key:'contact',label:'Contact',phase:TAU*0.25,color:'#3B82F6',fill:'rgba(59,130,246,0.08)'},
-{key:'down',   label:'Down',   phase:TAU*0.42,color:'#D97706',fill:'rgba(217,119,6,0.08)'},
-{key:'passing',label:'Passing',phase:TAU*0.5, color:'#059669',fill:'rgba(5,150,105,0.08)'},
-{key:'up',     label:'Up',     phase:TAU*0.75,color:'#DC2626',fill:'rgba(220,38,38,0.08)'},
+{key:'contact', label:'Contact',   phase:TAU*0.25, color:'#3B82F6', fill:'rgba(59,130,246,0.08)'},
+{key:'passing', label:'Passing',   phase:TAU*0.5,  color:'#059669', fill:'rgba(5,150,105,0.08)'},
+{key:'contact2',label:'Contact 2', phase:TAU*0.75, color:'#3B82F6', fill:'rgba(59,130,246,0.08)'},
+{key:'passing2',label:'Passing 2', phase:TAU,      color:'#059669', fill:'rgba(5,150,105,0.08)'},
 ];
+// Frame 1 = Contact pose: raw tN 0 maps to Contact by adding this offset before applyFeel
+const PHASE_OFFSET = KEY_POSES[0].phase / TAU; // 0.25
 
 // ── Guinea pig easter egg ─────────────────────────────────────────────────────
 // Uses a single continuous bezier path for the body+head silhouette so it looks
@@ -642,6 +741,153 @@ if (img) {
 ctx.restore();
 }
 
+// ── Classic animation timing chart overlay ────────────────────────────────────
+// Shows spacing of inbetweens between the two surrounding key poses.
+// The chart leads UP TO the ending keyframe (key sits at chart bottom).
+// Switches to the next segment on the first drawing after the keyframe.
+//
+// Halving arcs: each midpoint drawing generates two arcs (start→mid, mid→end).
+//   Level 1: ) bows right (halves of the full segment)
+//   Level 2: ( bows left  (halves of the halves)
+//   Level 0 (full segment) never gets an arc — only sub-arcs.
+function drawWalkTimingChart(ctx, p, rawPhase, cx, dir, light, forExport) {
+const N = cycLen(p.fps, p.speed);
+const schedule = buildSchedule(p);
+if (!schedule.length) return;
+const drawn = schedule.map((s, k) => ({i: s.frame, ph: s.ph, hold: s.hold, drwNum: k+1}));
+const schedIdx = findSchedIdx(schedule, rawPhase, N);
+const curFrame = schedule[schedIdx].frame;
+const curPhase = schedule[schedIdx].ph;
+
+const chartTop = 44, chartBot = GY - 22, chartH = chartBot - chartTop;
+const chartX = 20;
+
+// Circular distance matching — handles passing2 at phase TAU (≡0 mod TAU, e.g. frame 20)
+const poseKeys = new Map();
+KEY_POSES.forEach(kp => {
+  let best = drawn[0], bestD = Infinity;
+  drawn.forEach(d => {
+    const dist = Math.min(Math.abs(d.ph - kp.phase), TAU - Math.abs(d.ph - kp.phase));
+    if (dist < bestD) { bestD = dist; best = d; }
+  });
+  poseKeys.set(best.i, kp.key);
+});
+
+const kpPhases = KEY_POSES.map(kp => kp.phase);
+// Shift by half a frame back so the keyframe itself shows the chart leading up to it;
+// the chart switches to the next segment on the very first drawing after the key.
+const halfSnap = TAU / N / 2;
+const shiftedPhase = (curPhase - halfSnap + TAU) % TAU;
+const activeIdx = (() => {
+  for (let ci = 0; ci < 4; ci++) {
+    const s = kpPhases[ci], e = kpPhases[(ci+1)%4];
+    if (e > s ? (shiftedPhase >= s && shiftedPhase < e) : (shiftedPhase >= s || shiftedPhase < e)) return ci;
+  }
+  return 0;
+})();
+
+// Sort by phase so segment 3 (wrap-around) is handled correctly.
+// Without sorting, frame indices jump (e.g. i=19 at ph≈0 in orig, but ph≈TAU in doubled)
+// and the x0>x1 loop produces an empty chart for segment 3.
+const drawnX = [
+  ...drawn,
+  ...drawn.map(d => ({...d, i: d.i+N, ph: d.ph+TAU}))
+].sort((a, b) => a.ph - b.ph);
+
+const findRefXIdx = target => {
+  let best=0, bestD=Infinity;
+  drawnX.forEach((d,xi) => { const dd=Math.abs(d.ph-target); if(dd<bestD){bestD=dd;best=xi;} });
+  return best;
+};
+
+const ci = activeIdx;
+const segPhaseStart = kpPhases[ci];
+const segPhaseEnd   = ci === 3 ? kpPhases[0]+TAU : kpPhases[ci+1];
+const segPhaseDur   = segPhaseEnd - segPhaseStart;
+
+const getSegY = ph => Math.max(chartTop, Math.min(chartBot,
+  chartTop + ((ph - segPhaseStart) / segPhaseDur) * chartH));
+
+const x0 = findRefXIdx(segPhaseStart);
+const x1 = findRefXIdx(segPhaseEnd);
+
+const segFrames = [];
+for (let j = x0; j <= x1 && j < drawnX.length; j++) segFrames.push(drawnX[j]);
+
+const ink   = light ? 'rgba(0,0,0,0.42)' : 'rgba(255,255,255,0.42)';
+const inkHi = light ? 'rgba(0,0,0,0.88)' : 'rgba(255,255,255,0.88)';
+
+// Tolerance: within one frame-step of the midpoint counts as a halving.
+// Uses phase midpoint so wrap-around segment works correctly.
+const phHalfStep = TAU / N + 0.001;
+const arcs = [];
+const findHalvings = (xi0, xi1, level) => {
+  if (xi1-xi0 < 2 || level > 4) return;
+  const a = drawnX[xi0], c = drawnX[xi1];
+  const midPh = (a.ph + c.ph) / 2;
+  let bxi=-1, bd=Infinity;
+  for (let j=xi0+1; j<xi1; j++) { const dd=Math.abs(drawnX[j].ph-midPh); if(dd<bd){bd=dd;bxi=j;} }
+  if (bxi<0 || bd > phHalfStep) return;
+  const b = drawnX[bxi];
+  const ay=getSegY(a.ph), by=getSegY(b.ph), cy=getSegY(c.ph);
+  // Two arcs per midpoint: start→mid and mid→end (never one arc spanning the full range)
+  if (level > 0) {
+    arcs.push({ay, cy: by, level});
+    arcs.push({ay: by, cy, level});
+  }
+  findHalvings(xi0, bxi, level+1);
+  findHalvings(bxi, xi1, level+1);
+};
+findHalvings(x0, x1, 1);
+
+const fontSize = Math.min(9, Math.max(6, Math.floor(220/drawn.length)));
+
+ctx.save();
+
+arcs.forEach(({ay, cy, level}) => {
+  const spanH = Math.abs(cy-ay); if (spanH < 3) return;
+  const bow  = Math.max(2, spanH*0.38/(1+level*0.45));
+  const side = level % 2 === 1 ? 1 : -1; // odd levels ) bow right, even levels ( bow left
+  const a2   = Math.max(0.08, 0.44-level*0.09);
+  ctx.strokeStyle = light ? `rgba(0,0,0,${a2})` : `rgba(255,255,255,${a2})`;
+  ctx.lineWidth = Math.max(0.5, 1.1-level*0.18);
+  ctx.beginPath(); ctx.moveTo(chartX, ay);
+  ctx.quadraticCurveTo(chartX+side*bow, (ay+cy)/2, chartX, cy); ctx.stroke();
+});
+
+ctx.strokeStyle = ink; ctx.lineWidth = 1.6;
+ctx.beginPath(); ctx.moveTo(chartX,chartTop); ctx.lineTo(chartX,chartBot); ctx.stroke();
+
+ctx.font = `${fontSize}px Courier New`; ctx.textBaseline = 'middle';
+segFrames.forEach(({i, ph, hold, drwNum}) => {
+  const realI = i % N;
+  const fy = getSegY(ph);
+  const isCur = realI === curFrame;
+  const poseKey = poseKeys.get(realI);
+  const isKey = poseKey !== undefined;
+
+  ctx.strokeStyle = isCur ? inkHi : ink;
+  ctx.fillStyle   = isCur ? inkHi : ink;
+  ctx.lineWidth = isCur ? 2.0 : (isKey ? 1.4 : 0.9);
+  const tickLen = isCur ? 9 : (isKey ? 7 : 5);
+  ctx.beginPath(); ctx.moveTo(chartX,fy); ctx.lineTo(chartX+tickLen,fy); ctx.stroke();
+  if (isCur) { ctx.beginPath(); ctx.arc(chartX,fy,2.5,0,TAU); ctx.fill(); }
+
+  const lx = chartX + 6;
+  const label = String(drwNum);
+  const tw = ctx.measureText(label).width;
+  ctx.lineWidth = 1.0;
+  if (isKey) {
+    ctx.beginPath(); ctx.arc(lx+tw/2,fy,fontSize*0.8,0,TAU); ctx.stroke();
+    ctx.fillText(label,lx,fy);
+  } else {
+    ctx.fillText(label,lx,fy);
+  }
+});
+
+ctx.restore();
+}
+
 // ── Full frame render ─────────────────────────────────────────────────────────
 function renderFrame(canvas, rawPhase, cx, p, st, opts={}) {
 const {forExport=false,transparent=false,keyPoseState=null,onion=null,marsvinMode=false,marsvinImg=null} = opts;
@@ -663,10 +909,12 @@ if (!bg.light) {
     if(_chg) drawCol={...col,parts:_np};
   }
 }
-const N = cycLen(p.fps, p.speed), snapStep = TAU/N*p.animOn;
-const snappedRaw = Math.round(rawPhase/snapStep)*snapStep;
-const tN = ((snappedRaw%TAU)+TAU)%TAU/TAU;
-const phase = applyFeel(tN, p.feel)*TAU;
+const N = cycLen(p.fps, p.speed);
+const schedule = buildSchedule(p);
+const schedIdx = findSchedIdx(schedule, rawPhase, N);
+const snappedFrame = schedule[schedIdx].frame;
+const snappedRaw = snappedFrame / N * TAU;
+const phase = schedule[schedIdx].ph;
 
 ctx.clearRect(0,0,W,H);
 if(marsvinMode){ctx.fillStyle=`hsl(${(Date.now()/12)%360},100%,85%)`;ctx.fillRect(0,0,W,H);}
@@ -725,13 +973,13 @@ ctx.restore();
 if(!marsvinMode){
 if(onion?.on&&!forExport){
 for(let i=onion.count;i>=1;i--){
-const pN2=((snappedRaw-i*snapStep)%TAU+TAU)%TAU/TAU;
-const oPh=applyFeel(pN2,p.feel)*TAU;
+const oi=((schedIdx-i)%schedule.length+schedule.length)%schedule.length;
+const oPh=schedule[oi].ph;
 drawFigure(ctx,computePose(oPh,cx,p,dir),p,{stroke:'#60A5FA',fill:'rgba(96,165,250,0.04)'},dir,oPh,0.22*(onion.count-i+1)/onion.count);
 }
 for(let i=1;i<=onion.count;i++){
-const pN2=((snappedRaw+i*snapStep)%TAU+TAU)%TAU/TAU;
-const oPh=applyFeel(pN2,p.feel)*TAU;
+const oi=(schedIdx+i)%schedule.length;
+const oPh=schedule[oi].ph;
 drawFigure(ctx,computePose(oPh,cx,p,dir),p,{stroke:'#F59E0B',fill:'rgba(245,158,11,0.04)'},dir,oPh,0.22*(onion.count-i+1)/onion.count);
 }
 }
@@ -740,20 +988,22 @@ KEY_POSES.forEach(kp=>{if(keyPoseState[kp.key]) drawFigure(ctx,computePose(kp.ph
 const gc=forExport?0:(p.ghostTrail|0);
 for(let g=gc;g>=1;g--){
 const pN2=((snappedRaw-g*0.28)%TAU+TAU)%TAU/TAU;
-const gPh=applyFeel(pN2,p.feel)*TAU;
+const gPh=applyFeel(((pN2+PHASE_OFFSET)%1),p.feel,p.feelIn,p.feelOut)*TAU;
 drawFigure(ctx,computePose(gPh,cx,p,dir),p,drawCol,dir,gPh,0.28*(gc-g+1)/gc);
 }
 drawFigure(ctx,computePose(phase,cx,p,dir),p,drawCol,dir,phase);
 } else {
 drawGuineaPig(ctx,cx,GY,phase,dir,p.legLen,marsvinImg);
 }
+if(st.showChart && !marsvinMode) drawWalkTimingChart(ctx,p,rawPhase,cx,dir,light,forExport);
 {
 const norm=((snappedRaw%TAU)+TAU)%TAU;
 const frameN=Math.min(Math.floor(norm/TAU*N)+1,N);
-const totalDrw=Math.ceil(N/p.animOn), drwN=Math.min(Math.ceil(frameN/p.animOn),totalDrw);
-const l1=p.animOn===1?`Fr ${frameN} / ${N}`:`Fr ${frameN} / ${N}  (Drw ${drwN} / ${totalDrw})`;
+const drwN=schedIdx+1, totalDrw=schedule.length;
+const curHold=schedule[schedIdx].hold;
+const l1=`Fr ${frameN}/${N}  ·  Drw ${drwN}/${totalDrw}`;
 const l2=`${N} fr · ${(N/p.fps).toFixed(2)}s @ ${p.fps}fps`;
-const l3=`${(p.stepLength*p.speed*5/24).toFixed(1)} km/h`;
+const l3=`${(p.stepLength*p.speed*5/24).toFixed(1)} km/h  hold:${curHold}`;
 ctx.save(); ctx.font='bold 10px Courier New'; const tw1=ctx.measureText(l1).width;
 ctx.font='9px Courier New'; const tw2=ctx.measureText(l2).width; const tw3=ctx.measureText(l3).width;
 const bw=Math.max(tw1,tw2,tw3)+16,bh=44,bx=W-bw-6,by=6;
@@ -785,7 +1035,7 @@ const curFrame = currentPhase !== undefined
 const laneH=22,gap=5,padX=34,padY=4,padR=8,chartW=cw-padX-padR;
 const bodyVals=[],footVals=[],armVals=[];
 for(let i=0;i<N;i++){
-const te=applyFeel(i/N,p.feel),ph=te*TAU;
+const te=applyFeel(((i/N+PHASE_OFFSET)%1),p.feel,p.feelIn,p.feelOut),ph=te*TAU;
 const k=Math.min(0.98,Math.abs(Math.sin(ph))*p.stepLength/Math.max(p.legLen,1));
 bodyVals.push(p.legLen*(1-Math.sqrt(1-k*k))*(1+p.bounce*0.10));
 footVals.push(Math.max(0,Math.cos(ph))*p.kneeLift);
@@ -798,6 +1048,7 @@ const lanes=[
 {label:'Arm', data:norm(armVals), invert:false,color:'#C07830'},
 ];
 const totalH=lanes.length*(laneH+gap);
+const drawnFrameSet=new Set(buildSchedule(p).map(s=>s.frame));
 if(curFrame>=0){
 const curX=padX+(curFrame+0.5)/N*chartW;
 ctx.fillStyle='rgba(0,0,0,0.10)'; ctx.fillRect(curX-0.5,padY,1,totalH+4);
@@ -815,7 +1066,7 @@ i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
 ctx.strokeStyle=color+'50'; ctx.lineWidth=1; ctx.stroke();
 for(let i=0;i<N;i++){
 const x=padX+(i+0.5)/N*chartW, n=invert?1-data[i]:data[i], y=trackY+2+(1-n)*(trackH-4);
-const isDrw=i%p.animOn===0;
+const isDrw=drawnFrameSet.has(i);
 const isCur=i===curFrame;
 if(isCur){ctx.beginPath();ctx.arc(x,y,5,0,TAU);ctx.fillStyle='white';ctx.fill();}
 ctx.beginPath(); ctx.arc(x,y,isCur?3:isDrw?2.5:1.5,0,TAU);
@@ -828,10 +1079,8 @@ ctx.fillStyle='#9A8C7C'; ctx.font='7px Courier New'; ctx.textAlign='center';
 [0,Math.round(N/4),Math.round(N/2),Math.round(3*N/4),N-1].forEach(i=>{
 ctx.fillText(i+1,padX+(i+0.5)/N*chartW,axY+8);
 });
-if(p.animOn>1){
 ctx.fillStyle='#9A8C7C'; ctx.font='7px Courier New'; ctx.textAlign='right';
 ctx.fillText('● drawing  ○ held',cw-4,ch-2);
-}
 }
 
 // ── Slider definitions per tab ────────────────────────────────────────────────
@@ -855,8 +1104,16 @@ body:[
  ]},
 {key:'footSize',      label:'Foot Size',      min:0,   max:22, step:1,   unit:'px'},
 {key:'lineWidth',     label:'Line Weight',    min:1,   max:8,  step:0.5, unit:'px'},
-{key:'hipSway',       label:'Hip Width',      min:0,   max:16, step:0.5, unit:'px'},
-{key:'shoulderWidth', label:'Shoulder Width', min:0,   max:16, step:0.5, unit:'px'},
+{key:'hipSway', label:'Hip Width', min:0, max:16, step:0.5, unit:'px',
+ expand:[
+   {key:'hipSwing', label:'Swing', min:0, max:16, step:0.5, unit:'px', computeMax:p=>p.hipSway, hint:'Forward/back oscillation · visible from side'},
+   {key:'hipLift',  label:'Lift',  min:0, max:8,  step:0.5, unit:'px', hint:'Hip rises when stepping, drops when planted'},
+ ]},
+{key:'shoulderWidth', label:'Shoulder Width', min:0, max:16, step:0.5, unit:'px',
+ expand:[
+   {key:'shoulderSwing', label:'Swing', min:0, max:16, step:0.5, unit:'px', computeMax:p=>p.shoulderWidth, hint:'Counter-rotation · visible from side'},
+   {key:'shoulderLift',  label:'Lift',  min:0, max:8,  step:0.5, unit:'px', hint:'Shoulder tilts opposite hips · visible from front'},
+ ]},
 ],
 walk:[
 {key:'speed',     label:'Speed',       min:0.2,max:3,  step:0.05,unit:'×'},
@@ -889,7 +1146,6 @@ style:[
  ]},
 {key:'legBend',      label:'Leg Bend',       min:-15,max:28, step:1,  unit:'px'},
 {key:'armBend',      label:'Arm Bend',       min:0,  max:60, step:1,  unit:'°'},
-{key:'headBob',      label:'Head Bob',       min:0,  max:14, step:0.5,unit:'px'},
 {key:'headPendulum', label:'Head Swing',     min:0,  max:18, step:0.5,unit:'px',
  expand:[
    {key:'headDelay', label:'Follow', min:-30, max:30, step:1, unit:'°', hint:'Head leads (−) or follows (+) body'},
@@ -900,12 +1156,13 @@ style:[
 
 // ── System presets ────────────────────────────────────────────────────────────
 const SYSTEM_PRESETS = {
-Normal:  {speed:2.4, bounce:4,  armSwing:8, stepLength:24,kneeLift:25,torsoLen:45,legLen:70,armLen:54,headSize:14,footSize:10,lineWidth:3,legBend:4,  armBend:15,leanAngle:2, bodyTilt:1, hipSway:7,  shoulderWidth:10, headBob:0,headPendulum:1, footLift:0.1,heelToe:0.8, feel:0.5,viewAngle:0},
-March:   {speed:1.3, bounce:13, armSwing:36,stepLength:20,kneeLift:55,torsoLen:46,legLen:68,armLen:46,headSize:14,lineWidth:3,  legBend:5,  armBend:30,leanAngle:3, bodyTilt:6, hipSway:0,  shoulderWidth:0,  headBob:4,headPendulum:0, heelToe:1.0, feel:0.6},
-Sneak:   {speed:0.55,bounce:3,  armSwing:10,stepLength:14,kneeLift:35,torsoLen:36,legLen:68,armLen:46,headSize:14,lineWidth:3,  legBend:18, armBend:40,leanAngle:20,bodyTilt:5, hipSway:2,  shoulderWidth:2,  headBob:0,headPendulum:7, heelToe:-0.7,feel:0.3},
-Strut:   {speed:0.75,bounce:18, armSwing:28,stepLength:32,kneeLift:10,torsoLen:44,legLen:68,armLen:46,headSize:14,lineWidth:3,  legBend:4,  armBend:20,leanAngle:-6,bodyTilt:11,hipSway:11, shoulderWidth:8,  headBob:5,headPendulum:6, heelToe:0.4, feel:0.7},
-Robot:   {speed:0.7, bounce:0,  armSwing:20,stepLength:22,kneeLift:35,torsoLen:44,legLen:68,armLen:46,headSize:14,lineWidth:2,  legBend:0,  armBend:0, leanAngle:0, bodyTilt:0, hipSway:0,  shoulderWidth:0,  headBob:0,headPendulum:0, heelToe:1.0, feel:0.0},
-Toddler: {speed:1.1, bounce:16, armSwing:14,stepLength:14,kneeLift:25,torsoLen:30,legLen:48,armLen:32,headSize:20,lineWidth:3,  legBend:8,  armBend:28,leanAngle:5, bodyTilt:8, hipSway:6,  shoulderWidth:5,  headBob:6,headPendulum:4, heelToe:0.2, feel:0.5},
+Normal:  {speed:2.4, bounce:4,  armSwing:8, stepLength:24,kneeLift:25,torsoLen:45,legLen:70,armLen:54,headSize:14,footSize:10,lineWidth:3,legBend:4,  armBend:15,leanAngle:2, bodyTilt:1, hipSway:7,  hipSwing:4, hipLift:3, shoulderWidth:10, shoulderSwing:6, shoulderLift:2, headPendulum:1, footLift:0.1,heelToe:0.8, feel:0.5,viewAngle:0},
+Casual:  {speed:2.2, bounce:5,  armSwing:7, stepLength:22,kneeLift:22,torsoLen:45,legLen:70,armLen:54,headSize:14,footSize:10,lineWidth:3,legBend:4,  armBend:15,leanAngle:3, bodyTilt:2, hipSway:6,  hipSwing:4, hipLift:3, shoulderWidth:9,  shoulderSwing:5, shoulderLift:2, headPendulum:1, footLift:0.15,heelToe:0.85,feel:0.55,viewAngle:0,animOn:2,spineBend:2,spineDir:0},
+March:   {speed:1.3, bounce:13, armSwing:36,stepLength:20,kneeLift:55,torsoLen:46,legLen:68,armLen:46,headSize:14,lineWidth:3,  legBend:5,  armBend:30,leanAngle:3, bodyTilt:6, hipSway:0,  hipSwing:0, hipLift:0, shoulderWidth:0,  shoulderSwing:0, shoulderLift:0, headPendulum:0, heelToe:1.0, feel:0.6},
+Sneak:   {speed:0.55,bounce:3,  armSwing:10,stepLength:14,kneeLift:35,torsoLen:36,legLen:68,armLen:46,headSize:14,lineWidth:3,  legBend:18, armBend:40,leanAngle:20,bodyTilt:5, hipSway:2,  hipSwing:1, hipLift:1, shoulderWidth:2,  shoulderSwing:1, shoulderLift:1, headPendulum:7, heelToe:-0.7,feel:0.3},
+Strut:   {speed:0.75,bounce:18, armSwing:28,stepLength:32,kneeLift:10,torsoLen:44,legLen:68,armLen:46,headSize:14,lineWidth:3,  legBend:4,  armBend:20,leanAngle:-6,bodyTilt:11,hipSway:11, hipSwing:7, hipLift:4, shoulderWidth:8,  shoulderSwing:5, shoulderLift:2, headPendulum:6, heelToe:0.4, feel:0.7},
+Robot:   {speed:0.7, bounce:0,  armSwing:20,stepLength:22,kneeLift:35,torsoLen:44,legLen:68,armLen:46,headSize:14,lineWidth:2,  legBend:0,  armBend:0, leanAngle:0, bodyTilt:0, hipSway:0,  hipSwing:0, hipLift:0, shoulderWidth:0,  shoulderSwing:0, shoulderLift:0, headPendulum:0, heelToe:1.0, feel:0.0},
+Toddler: {speed:1.1, bounce:16, armSwing:14,stepLength:14,kneeLift:25,torsoLen:30,legLen:48,armLen:32,headSize:20,lineWidth:3,  legBend:8,  armBend:28,leanAngle:5, bodyTilt:8, hipSway:6,  hipSwing:4, hipLift:3, shoulderWidth:5,  shoulderSwing:3, shoulderLift:2, headPendulum:4, heelToe:0.2, feel:0.5},
 };
 
 // ── Defaults ──────────────────────────────────────────────────────────────────
@@ -913,10 +1170,10 @@ const DEF_PARAMS = {
 legLen:70,armLen:54,torsoLen:45,headSize:14,footSize:10,lineWidth:3,
 legBend:4,armBend:15,legRatio:0,armRatio:0,armRaise:0,armDirection:0,armDelay:0,armEase:1,bodyTiltDelay:0,bodyTiltEase:1,spineBend:0,spineDir:0,
 speed:2.4,stepLength:24,stepWidth:7,kneeLift:25,footLift:0.1,bounce:4,armSwing:8,heelToe:0.8,
-leanAngle:2,bodyTilt:1,hipSway:7,shoulderWidth:10,headBob:0,headPendulum:1,headAngle:0,headDelay:0,ghostTrail:0,
-fps:24,animOn:1,feel:0.5,viewAngle:0,
+leanAngle:2,bodyTilt:1,hipSway:7,hipSwing:4,hipLift:3,shoulderWidth:10,shoulderSwing:6,shoulderLift:2,headPendulum:1,headAngle:0,headDelay:0,ghostTrail:0,
+fps:24,animOn:1,feel:0.5,feelIn:0.5,feelOut:0.5,viewAngle:0,
 };
-const DEF_STYLE = {figureIdx:0,bgIdx:0,showGrid:false,showShadow:false,footDots:false,flipDir:false,loco:'place',themeIdx:0,tickMode:'step'};
+const DEF_STYLE = {figureIdx:0,bgIdx:0,showGrid:false,showShadow:false,footDots:false,flipDir:false,loco:'place',themeIdx:0,tickMode:'step',showChart:true};
 // figureIdx:0 = Ink (dark, readable on paper)   bgIdx:0 = Paper (warm cream)
 
 // ── Storage helpers ───────────────────────────────────────────────────────────
@@ -943,7 +1200,7 @@ return th.toDataURL('image/jpeg',0.75);
 const THEMES = [
 { // 0 — Silly Walks Studio (default)
   title:"Seb's Silly Walks Studio",
-  subtitle:"ITS JUST A 2D ANIMATION REFERENCE TOOL",
+  subtitle:"JUST A 2D ANIMATION REFERENCE TOOL",
   titleFont:"'Rye', 'Georgia', serif",
   titleSize:19,
   subtitleFont:"'Courier New', monospace",
@@ -956,7 +1213,7 @@ const THEMES = [
 },
 { // 1 — NeuroPrancer Nexus (cyberpunk)
   title:"Seb's NeuroPrancer Nexus",
-  subtitle:"ITS JUST A GLITCH IN THE WALKCYCLE",
+  subtitle:"JUST A GLITCH IN THE WALKCYCLE",
   titleFont:"'Orbitron', 'Courier New', monospace",
   titleSize:13,
   subtitleFont:"'Courier New', monospace",
@@ -969,7 +1226,7 @@ const THEMES = [
 },
 { // 2 — Sassy Sashay Salon
   title:"Seb's Sassy Sashay Salon",
-  subtitle:"ITS JUST A SLUTTY STRUT CLUB",
+  subtitle:"JUST A SLUTTY STRUT CLUB",
   titleFont:"'Righteous', cursive",
   titleSize:18,
   subtitleFont:"'Courier New', monospace",
@@ -1093,7 +1350,7 @@ const [params,      setParams]      = useState(DEF_PARAMS);
 const [style,       setStyle]       = useState(DEF_STYLE);
 const [tab,         setTab]         = useState('walk');
 const [playback,    setPlayback]    = useState('forward');
-const [keyPoses,    setKeyPoses]    = useState({contact:false,down:false,passing:false,up:false});
+const [keyPoses,    setKeyPoses]    = useState({contact:false,passing:false,contact2:false,passing2:false});
 const [onionOn,     setOnionOn]     = useState(false);
 const [onionCount,  setOnionCount]  = useState(2);
 const [exporting,   setExporting]   = useState(false);
@@ -1124,6 +1381,9 @@ const toggleExpand = key => setExpandedSliders(s => { const n=new Set(s); n.has(
 const setP  = (key,val) => { setActivePreset(null); setParams(p=>{
   const next={...p,[key]:val};
   if(key==='legLen') next.stepLength=Math.min(next.stepLength, Math.floor(val*0.97));
+  if(key==='feel')    { next.feelIn = val; next.feelOut = val; }
+  if(key==='feelIn')  { next.feel = (val + (next.feelOut ?? next.feel)) / 2; }
+  if(key==='feelOut') { next.feel = ((next.feelIn ?? next.feel) + val) / 2; }
   return next;
 }); };
 const setSt = (key,val) => setStyle(s=>({...s,[key]:val}));
@@ -1133,7 +1393,7 @@ if(marsvinMode){
 const h=marsvinHue;
 T={...T,
 title:'🐾 DESMONDS MARSVIN!!',
-subtitle:'ITS JUST A WALKING GUINEA PIG',
+subtitle:'JUST A WALKING GUINEA PIG',
 titleFont:"'Righteous', cursive",
 titleSize:17,
 paper:    `hsl(${h},100%,88%)`,
@@ -1210,8 +1470,10 @@ if(walkXRef.current<-90)  walkXRef.current=W+90;
 const cx=st.loco==='walk'?walkXRef.current:W/2;
 renderFrame(canvas,phaseRef.current,cx,p,st,{keyPoseState:kp,onion:{on:oo,count:oc},marsvinMode:live.current.marsvinMode,marsvinImg:marsvinImgRef.current});
 if(live.current.tab==='timing'&&chartRef.current) drawTimingChart(chartRef.current,p,phaseRef.current);
-const N=cycLen(p.fps,p.speed),snap=TAU/N*p.animOn;
-const frac=((Math.round(phaseRef.current/snap)*snap%TAU)+TAU)%TAU/TAU;
+const N=cycLen(p.fps,p.speed);
+const _sched=buildSchedule(p);
+const _si=findSchedIdx(_sched,phaseRef.current,N);
+const frac=_sched[_si].frame/N;
 if(scrubRef.current) scrubRef.current.style.left=`${frac*100}%`;
 animRef.current=requestAnimationFrame(loop);
 };
@@ -1231,8 +1493,22 @@ const onSD=e=>{scrubDrag.current=true;phaseRef.current=getSF(e)*TAU;setPlayback(
 const onSM=e=>{if(scrubDrag.current) phaseRef.current=getSF(e)*TAU;};
 const onSU=()=>{scrubDrag.current=false;};
 
-const stepFwd=()=>{const N=cycLen(live.current.params.fps,live.current.params.speed);setPlayback('paused');phaseRef.current+=TAU/N*live.current.params.animOn;};
-const stepBwd=()=>{const N=cycLen(live.current.params.fps,live.current.params.speed);setPlayback('paused');phaseRef.current-=TAU/N*live.current.params.animOn;};
+const stepFwd=()=>{
+  const p=live.current.params;
+  const N=cycLen(p.fps,p.speed), sched=buildSchedule(p);
+  const si=findSchedIdx(sched,phaseRef.current,N);
+  const next=(si+1)%sched.length;
+  phaseRef.current=sched[next].frame/N*TAU+(next===0?TAU:0);
+  setPlayback('paused');
+};
+const stepBwd=()=>{
+  const p=live.current.params;
+  const N=cycLen(p.fps,p.speed), sched=buildSchedule(p);
+  const si=findSchedIdx(sched,phaseRef.current,N);
+  const prev=(si-1+sched.length)%sched.length;
+  phaseRef.current=sched[prev].frame/N*TAU-(prev===sched.length-1?TAU:0);
+  setPlayback('paused');
+};
 
 // Presets
 const applyPreset=(pre,name)=>{setParams(p=>({...p,...pre,fps:p.fps,animOn:p.animOn}));setActivePreset(name||null);};
@@ -1253,10 +1529,10 @@ const doExport=async mode=>{
 if(downloadReady){URL.revokeObjectURL(downloadReady.url);setDownloadReady(null);}
 setExporting(true);
 const {params:p,style:st}=live.current;
-const N=cycLen(p.fps,p.speed),dc=Math.ceil(N/p.animOn),res=expRes;
+const N=cycLen(p.fps,p.speed);
+const sched=buildSchedule(p); const dc=sched.length; const res=expRes;
 const baseName=(activePreset||'walk').toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'');
 const off=document.createElement('canvas');off.width=W*res;off.height=H*res;
-const oc=off.getContext('2d');
 const bg=BG_COLORS[st.bgIdx];
 let blob,filename;
 if(mode==='spritesheet'){
@@ -1265,7 +1541,7 @@ const cols=Math.ceil(Math.sqrt(dc)), rows=Math.ceil(dc/cols);
 const sh=document.createElement('canvas');sh.width=W*res*cols;sh.height=H*res*rows;
 const sc=sh.getContext('2d');
 for(let d=0;d<dc;d++){
-const rp=d*p.animOn*TAU/N;
+const rp=sched[d].frame/N*TAU;
 renderFrame(off,rp,W/2,p,st,{forExport:true,transparent:expTrans});
 sc.drawImage(off,(d%cols)*W*res,Math.floor(d/cols)*H*res);
 setExpPct(Math.round((d+1)/dc*100));await new Promise(r=>setTimeout(r,15));
@@ -1276,14 +1552,14 @@ filename=`${baseName}_spritesheet_${cols}x${rows}_${dc}drw.png`;
 const {w:aw,h:ah}=getAspect();
 const zip=new JSZip();
 for(let d=0;d<dc;d++){
-const rp=d*p.animOn*TAU/N;
+const rp=sched[d].frame/N*TAU;
 renderFrame(off,rp,W/2,p,st,{forExport:true,transparent:expTrans});
 const frame=compositeFrame(off,aw,ah,bg.bg,res);
-zip.file(`walk_${p.animOn>1?'drw':'fr'}_${String(d+1).padStart(3,'0')}.png`, await canvasToBlob(frame));
+zip.file(`walk_drw_${String(d+1).padStart(3,'0')}.png`, await canvasToBlob(frame));
 setExpPct(Math.round((d+1)/dc*50));await new Promise(r=>setTimeout(r,15));
 }
 blob=await zip.generateAsync({type:'blob'},meta=>{setExpPct(50+Math.round(meta.percent/2));});
-filename=`${baseName}_sequence_${aw*res}x${ah*res}_${dc}${p.animOn>1?'drw':'fr'}.zip`;
+filename=`${baseName}_sequence_${aw*res}x${ah*res}_${dc}drw.zip`;
 }
 setExporting(false);setExpPct(0);
 setDownloadReady({url:URL.createObjectURL(blob),filename});
@@ -1292,16 +1568,17 @@ const doGifExport=async()=>{
 if(downloadReady){URL.revokeObjectURL(downloadReady.url);setDownloadReady(null);}
 setExporting(true);
 const {params:p,style:st}=live.current;
-const N=cycLen(p.fps,p.speed),dc=Math.ceil(N/p.animOn),res=expRes;
+const N=cycLen(p.fps,p.speed);
+const gifSched=buildSchedule(p); const dc=gifSched.length; const res=expRes;
 const {w:aw,h:ah}=getAspect();
 const ew=aw*res, eh=ah*res;
 const bg=BG_COLORS[st.bgIdx];
 const baseName=(activePreset||'walk').toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'');
 const off=document.createElement('canvas');off.width=W*res;off.height=H*res;
 const gif=GIFEncoder();
-const delay=Math.round(1000/p.fps*p.animOn);
 for(let d=0;d<dc;d++){
-const rp=d*p.animOn*TAU/N;
+const rp=gifSched[d].frame/N*TAU;
+const delay=Math.round(1000/p.fps*gifSched[d].hold);
 renderFrame(off,rp,W/2,p,st,{forExport:true,transparent:false});
 const frame=compositeFrame(off,aw,ah,bg.bg,res);
 const {data}=frame.getContext('2d').getImageData(0,0,ew,eh);
@@ -1330,7 +1607,8 @@ const sec={display:'flex',flexDirection:'column',gap:8};
 const secLbl={fontSize:9,letterSpacing:'0.18em',color:T.ink3,textTransform:'uppercase'};
 const divider={width:'100%',height:1,background:T.borderLt,margin:'2px 0'};
 
-const N=cycLen(params.fps,params.speed), dc=Math.ceil(N/params.animOn);
+const N=cycLen(params.fps,params.speed);
+const _uiSched=buildSchedule(params); const dc=_uiSched.length;
 const TABS=[
 {key:'body',  icon:'⊙',label:'Body'},
 {key:'walk',  icon:'≋',label:'Walk'},
@@ -1413,7 +1691,7 @@ boxShadow:`0 4px 16px ${ha(T.ink,0.18)}`,
       ))}
     </div>
     <div style={{width:1,height:14,background:T.border}}/>
-    {[['⊞','Grid','showGrid'],['◐','Shadow','showShadow'],['⁛','Dots','footDots'],['⇄','Flip','flipDir']].map(([ic,l,k])=>(
+    {[['⊞','Grid','showGrid'],['◐','Shadow','showShadow'],['⁛','Dots','footDots'],['⇄','Flip','flipDir'],['⌇','Chart','showChart']].map(([ic,l,k])=>(
       <button key={k} onClick={()=>setSt(k,!style[k])} style={tgl(style[k])}>{ic} {l}</button>
     ))}
     <div style={{marginLeft:'auto',display:'flex',gap:3}}>
@@ -1451,7 +1729,7 @@ boxShadow:`0 4px 16px ${ha(T.ink,0.18)}`,
          style={{position:'relative',height:3,background:T.borderLt,borderRadius:2,cursor:'pointer',marginBottom:8}}>
       {KEY_POSES.map(kp=>(
         <div key={kp.key} style={{position:'absolute',top:0,bottom:0,width:2,borderRadius:1,
-          background:keyPoses[kp.key]?kp.color:T.borderLt,left:`${kp.phase/TAU*100}%`}}/>
+          background:keyPoses[kp.key]?kp.color:T.borderLt,left:`${((kp.phase/TAU-PHASE_OFFSET+1)%1)*100}%`}}/>
       ))}
       <div ref={scrubRef} style={{position:'absolute',top:-5,left:'0%',width:13,height:13,
         background:T.ink,border:`2px solid ${T.paper}`,borderRadius:'50%',
@@ -1576,7 +1854,6 @@ boxShadow:`0 4px 16px ${ha(T.ink,0.18)}`,
         <div style={{fontSize:9,color:T.ink2,lineHeight:1.7,padding:'5px 10px',
                      background:T.paperDk,borderRadius:3,border:`1px solid ${T.borderLt}`}}>
           {N} frames · {dc} drawing{dc!==1?'s':''} · {(N/params.fps).toFixed(2)}s loop
-          {params.animOn===2&&<span style={{color:T.ink3}}> — each held 2 frames</span>}
         </div>
         <div style={sec}>
           <div style={{display:'flex',justifyContent:'space-between'}}>
@@ -1589,6 +1866,19 @@ boxShadow:`0 4px 16px ${ha(T.ink,0.18)}`,
             onChange={e=>setP('feel',+e.target.value)} style={{accentColor:T.blue,cursor:'pointer'}}/>
           <div style={{display:'flex',justifyContent:'space-between',fontSize:8,color:T.ink4,marginTop:1}}>
             <span>Linear</span><span>Natural</span><span>Heavy</span>
+          </div>
+          <div style={{display:'flex',gap:8,marginTop:4}}>
+            {[['feelIn','Ease In'],['feelOut','Ease Out']].map(([k,lbl])=>(
+              <div key={k} style={{flex:1}}>
+                <div style={{display:'flex',justifyContent:'space-between',fontSize:8,color:T.ink3}}>
+                  <span>{lbl}</span><span>{(params[k]??params.feel).toFixed(2)}</span>
+                </div>
+                <input type="range" min={0} max={1} step={0.01}
+                  value={params[k] ?? params.feel}
+                  onChange={e=>setP(k,+e.target.value)}
+                  style={{width:'100%',accentColor:T.blue,cursor:'pointer'}}/>
+              </div>
+            ))}
           </div>
           <p style={{fontSize:9,color:T.ink3,lineHeight:1.6,fontStyle:'italic',margin:'4px 0 0'}}>
             Dwells at contact &amp; toe-off — rushes through passing. Shapes drawing frame positions.
@@ -1721,7 +2011,7 @@ boxShadow:`0 4px 16px ${ha(T.ink,0.18)}`,
       </div>
     </div>
     <div style={{fontSize:9,color:T.ink3,marginBottom:10}}>
-      {(()=>{const {w,h}=getAspect();return`${dc} ${params.animOn===2?'drawings (2s)':'frames'} · ${w*expRes}×${h*expRes}px · sheet ${Math.ceil(Math.sqrt(dc))}×${Math.ceil(dc/Math.ceil(Math.sqrt(dc)))} (native 3:2)`;})()}
+      {(()=>{const {w,h}=getAspect();return`${dc} drawings · ${w*expRes}×${h*expRes}px · sheet ${Math.ceil(Math.sqrt(dc))}×${Math.ceil(dc/Math.ceil(Math.sqrt(dc)))} (native 3:2)`;})()}
     </div>
     <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
       <button onClick={()=>doExport('sequence')} disabled={exporting}
@@ -1758,8 +2048,7 @@ boxShadow:`0 4px 16px ${ha(T.ink,0.18)}`,
       </a>
     )}
     <p style={{marginTop:8,fontSize:9,color:T.ink4,lineHeight:1.6,fontStyle:'italic',margin:'8px 0 0'}}>
-      PNG/GIF use selected aspect ratio (letterboxed). Spritesheet always uses native 3:2. Onion skins and ghost trail excluded.
-      {params.animOn===2&&` On 2s: ${dc} unique drawings, each held 2 frames.`}
+      PNG/GIF use selected aspect ratio (letterboxed). Spritesheet always uses native 3:2. Onion skins and ghost trail excluded. GIF uses per-drawing variable frame delays.
     </p>
   </div>
 </div>
