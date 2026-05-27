@@ -742,14 +742,9 @@ ctx.restore();
 }
 
 // ── Classic animation timing chart overlay ────────────────────────────────────
-// Shows spacing of inbetweens between the two surrounding key poses.
+// Shows spacing of drawings within the two surrounding key poses.
 // The chart leads UP TO the ending keyframe (key sits at chart bottom).
 // Switches to the next segment on the first drawing after the keyframe.
-//
-// Halving arcs: each midpoint drawing generates two arcs (start→mid, mid→end).
-//   Level 1: ) bows right (halves of the full segment)
-//   Level 2: ( bows left  (halves of the halves)
-//   Level 0 (full segment) never gets an arc — only sub-arcs.
 function drawWalkTimingChart(ctx, p, rawPhase, cx, dir, light, forExport) {
 const N = cycLen(p.fps, p.speed);
 const schedule = buildSchedule(p);
@@ -817,43 +812,9 @@ for (let j = x0; j <= x1 && j < drawnX.length; j++) segFrames.push(drawnX[j]);
 const ink   = light ? 'rgba(0,0,0,0.42)' : 'rgba(255,255,255,0.42)';
 const inkHi = light ? 'rgba(0,0,0,0.88)' : 'rgba(255,255,255,0.88)';
 
-// Tolerance: within one frame-step of the midpoint counts as a halving.
-// Uses phase midpoint so wrap-around segment works correctly.
-const phHalfStep = TAU / N + 0.001;
-const arcs = [];
-const findHalvings = (xi0, xi1, level) => {
-  if (xi1-xi0 < 2 || level > 4) return;
-  const a = drawnX[xi0], c = drawnX[xi1];
-  const midPh = (a.ph + c.ph) / 2;
-  let bxi=-1, bd=Infinity;
-  for (let j=xi0+1; j<xi1; j++) { const dd=Math.abs(drawnX[j].ph-midPh); if(dd<bd){bd=dd;bxi=j;} }
-  if (bxi<0 || bd > phHalfStep) return;
-  const b = drawnX[bxi];
-  const ay=getSegY(a.ph), by=getSegY(b.ph), cy=getSegY(c.ph);
-  // Two arcs per midpoint: start→mid and mid→end (never one arc spanning the full range)
-  if (level > 0) {
-    arcs.push({ay, cy: by, level});
-    arcs.push({ay: by, cy, level});
-  }
-  findHalvings(xi0, bxi, level+1);
-  findHalvings(bxi, xi1, level+1);
-};
-findHalvings(x0, x1, 1);
-
 const fontSize = Math.min(9, Math.max(6, Math.floor(220/drawn.length)));
 
 ctx.save();
-
-arcs.forEach(({ay, cy, level}) => {
-  const spanH = Math.abs(cy-ay); if (spanH < 3) return;
-  const bow  = Math.max(2, spanH*0.38/(1+level*0.45));
-  const side = level % 2 === 1 ? 1 : -1; // odd levels ) bow right, even levels ( bow left
-  const a2   = Math.max(0.08, 0.44-level*0.09);
-  ctx.strokeStyle = light ? `rgba(0,0,0,${a2})` : `rgba(255,255,255,${a2})`;
-  ctx.lineWidth = Math.max(0.5, 1.1-level*0.18);
-  ctx.beginPath(); ctx.moveTo(chartX, ay);
-  ctx.quadraticCurveTo(chartX+side*bow, (ay+cy)/2, chartX, cy); ctx.stroke();
-});
 
 ctx.strokeStyle = ink; ctx.lineWidth = 1.6;
 ctx.beginPath(); ctx.moveTo(chartX,chartTop); ctx.lineTo(chartX,chartBot); ctx.stroke();
