@@ -2118,7 +2118,7 @@ boxShadow:`0 4px 16px ${ha(T.ink,0.18)}`,
                       alignItems:'center',gap:6,padding:'5px 9px',fontSize:9}}>
               ✉ E-MAIL
             </a>
-            <a href="https://www.instagram.com/" target="_blank" rel="noreferrer"
+            <a href="https://www.instagram.com/sebledebur" target="_blank" rel="noreferrer"
               style={{...tgl(false),textDecoration:'none',display:'flex',
                       alignItems:'center',gap:6,padding:'5px 9px',fontSize:9}}>
               ◎ INSTA
@@ -2126,7 +2126,7 @@ boxShadow:`0 4px 16px ${ha(T.ink,0.18)}`,
             <a href="https://ko-fi.com/I0M420DFH2" target="_blank" rel="noreferrer"
               style={{...tgl(false),textDecoration:'none',display:'flex',
                       alignItems:'center',gap:6,padding:'5px 9px',fontSize:9}}>
-              🍺 BEER
+              🍺 BEER $
             </a>
           </div>
         </div>
