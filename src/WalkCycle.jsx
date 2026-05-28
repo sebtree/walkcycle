@@ -1060,13 +1060,13 @@ style:[
 
 // ── System presets ────────────────────────────────────────────────────────────
 const SYSTEM_PRESETS = {
-Normal:  {speed:1.05,bounce:4,  armSwing:8, stepLength:24,kneeLift:25,torsoLen:45,legLen:70,armLen:54,headSize:14,footSize:10,lineWidth:3,legBend:4,  armBend:15,leanAngle:2, bodyTilt:1, hipSway:7,  hipSwing:4, hipLift:3, shoulderWidth:10, shoulderSwing:6, shoulderLift:2, headPendulum:1, footLift:0.1,heelToe:0.8, feel:0.5,viewAngle:0},
-Casual:  {speed:1.14,bounce:5,  armSwing:7, stepLength:22,kneeLift:22,torsoLen:45,legLen:70,armLen:54,headSize:14,footSize:10,lineWidth:3,legBend:4,  armBend:15,leanAngle:3, bodyTilt:2, hipSway:6,  hipSwing:4, hipLift:3, shoulderWidth:9,  shoulderSwing:5, shoulderLift:2, headPendulum:1, footLift:0.15,heelToe:0.85,feel:0.55,viewAngle:0,animOn:2,spineBend:2,spineDir:0},
-March:   {speed:1.93,bounce:13, armSwing:36,stepLength:20,kneeLift:55,torsoLen:46,legLen:68,armLen:46,headSize:14,lineWidth:3,  legBend:5,  armBend:30,leanAngle:3, bodyTilt:6, hipSway:0,  hipSwing:0, hipLift:0, shoulderWidth:0,  shoulderSwing:0, shoulderLift:0, headPendulum:0, heelToe:1.0, feel:0.6},
-Sneak:   {speed:4.57,bounce:3,  armSwing:10,stepLength:14,kneeLift:35,torsoLen:36,legLen:68,armLen:46,headSize:14,lineWidth:3,  legBend:18, armBend:40,leanAngle:20,bodyTilt:5, hipSway:2,  hipSwing:1, hipLift:1, shoulderWidth:2,  shoulderSwing:1, shoulderLift:1, headPendulum:7, heelToe:-0.7,feel:0.3},
-Strut:   {speed:3.35,bounce:18, armSwing:28,stepLength:32,kneeLift:10,torsoLen:44,legLen:68,armLen:46,headSize:14,lineWidth:3,  legBend:4,  armBend:20,leanAngle:-6,bodyTilt:11,hipSway:11, hipSwing:7, hipLift:4, shoulderWidth:8,  shoulderSwing:5, shoulderLift:2, headPendulum:6, heelToe:0.4, feel:0.7},
-Robot:   {speed:3.59,bounce:0,  armSwing:20,stepLength:22,kneeLift:35,torsoLen:44,legLen:68,armLen:46,headSize:14,lineWidth:2,  legBend:0,  armBend:0, leanAngle:0, bodyTilt:0, hipSway:0,  hipSwing:0, hipLift:0, shoulderWidth:0,  shoulderSwing:0, shoulderLift:0, headPendulum:0, heelToe:1.0, feel:0.0},
-Toddler: {speed:2.28,bounce:16, armSwing:14,stepLength:14,kneeLift:25,torsoLen:30,legLen:48,armLen:32,headSize:20,lineWidth:3,  legBend:8,  armBend:28,leanAngle:5, bodyTilt:8, hipSway:6,  hipSwing:4, hipLift:3, shoulderWidth:5,  shoulderSwing:3, shoulderLift:2, headPendulum:4, heelToe:0.2, feel:0.5},
+Normal:  {speed:1.0, bounce:4,  armSwing:8, stepLength:24,kneeLift:25,torsoLen:45,legLen:70,armLen:54,headSize:14,footSize:10,lineWidth:3,legBend:4,  armBend:15,leanAngle:2, bodyTilt:1, hipSway:7,  hipSwing:4, hipLift:3, shoulderWidth:10, shoulderSwing:6, shoulderLift:2, headPendulum:1, footLift:0.1,heelToe:0.8, feel:0.0,feelIn:0.0,feelOut:0.0,viewAngle:0},
+Casual:  {speed:1.14,bounce:5,  armSwing:7, stepLength:22,kneeLift:22,torsoLen:45,legLen:70,armLen:54,headSize:14,footSize:10,lineWidth:3,legBend:4,  armBend:15,leanAngle:3, bodyTilt:2, hipSway:6,  hipSwing:4, hipLift:3, shoulderWidth:9,  shoulderSwing:5, shoulderLift:2, headPendulum:1, footLift:0.15,heelToe:0.85,feel:0.55,feelIn:0.6,feelOut:0.5,viewAngle:0,animOn:2,spineBend:2,spineDir:0},
+March:   {speed:1.0, bounce:13, armSwing:36,stepLength:20,kneeLift:55,torsoLen:46,legLen:68,armLen:46,headSize:14,lineWidth:3,  legBend:5,  armBend:30,leanAngle:3, bodyTilt:6, hipSway:0,  hipSwing:0, hipLift:0, shoulderWidth:0,  shoulderSwing:0, shoulderLift:0, headPendulum:0, heelToe:1.0, feel:0.15,feelIn:0.15,feelOut:0.15},
+Sneak:   {speed:4.57,bounce:3,  armSwing:10,stepLength:14,kneeLift:35,torsoLen:36,legLen:68,armLen:46,headSize:14,lineWidth:3,  legBend:18, armBend:40,leanAngle:20,bodyTilt:5, hipSway:2,  hipSwing:1, hipLift:1, shoulderWidth:2,  shoulderSwing:1, shoulderLift:1, headPendulum:7, heelToe:-0.7,feel:0.65,feelIn:0.75,feelOut:0.4,animOn:2},
+Strut:   {speed:3.35,bounce:18, armSwing:28,stepLength:32,kneeLift:10,torsoLen:44,legLen:68,armLen:46,headSize:14,lineWidth:3,  legBend:4,  armBend:20,leanAngle:-6,bodyTilt:11,hipSway:11, hipSwing:7, hipLift:4, shoulderWidth:8,  shoulderSwing:5, shoulderLift:2, headPendulum:6, heelToe:0.4, feel:0.65,feelIn:0.7,feelOut:0.6,animOn:2},
+Robot:   {speed:3.59,bounce:0,  armSwing:20,stepLength:22,kneeLift:35,torsoLen:44,legLen:68,armLen:46,headSize:14,lineWidth:2,  legBend:0,  armBend:0, leanAngle:0, bodyTilt:0, hipSway:0,  hipSwing:0, hipLift:0, shoulderWidth:0,  shoulderSwing:0, shoulderLift:0, headPendulum:0, heelToe:1.0, feel:0.0,feelIn:0.0,feelOut:0.0,animOn:2},
+Toddler: {speed:2.28,bounce:16, armSwing:14,stepLength:14,kneeLift:25,torsoLen:30,legLen:48,armLen:32,headSize:20,lineWidth:3,  legBend:8,  armBend:28,leanAngle:5, bodyTilt:8, hipSway:6,  hipSwing:4, hipLift:3, shoulderWidth:5,  shoulderSwing:3, shoulderLift:2, headPendulum:4, heelToe:0.2, feel:0.55,feelIn:0.65,feelOut:0.5,animOn:2},
 };
 
 // ── Defaults ──────────────────────────────────────────────────────────────────
@@ -1075,7 +1075,7 @@ legLen:70,armLen:54,torsoLen:45,headSize:14,footSize:10,lineWidth:3,
 legBend:4,armBend:15,legRatio:0,armRatio:0,armRaise:0,armDirection:0,armDelay:0,armEase:1,bodyTiltDelay:0,bodyTiltEase:1,spineBend:0,spineDir:0,
 speed:1.0,stepLength:24,stepWidth:7,kneeLift:25,footLift:0.1,bounce:4,armSwing:8,heelToe:0.8,
 leanAngle:2,bodyTilt:1,hipSway:7,hipSwing:4,hipLift:3,shoulderWidth:10,shoulderSwing:6,shoulderLift:2,headPendulum:1,headAngle:0,headDelay:0,ghostTrail:0,
-fps:24,animOn:1,feel:0.5,feelIn:0.5,feelOut:0.5,viewAngle:0,
+fps:24,animOn:1,feel:0.0,feelIn:0.0,feelOut:0.0,viewAngle:0,
 };
 const DEF_STYLE = {figureIdx:0,bgIdx:0,showGrid:false,showShadow:false,footDots:false,flipDir:false,loco:'place',themeIdx:0,tickMode:'step',showChart:true};
 // figureIdx:0 = Ink (dark, readable on paper)   bgIdx:0 = Paper (warm cream)
