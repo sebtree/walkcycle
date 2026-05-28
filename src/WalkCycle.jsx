@@ -726,9 +726,10 @@ const drawn = schedule.map((s, k) => ({i: s.frame, ph: s.ph, hold: s.hold, drwNu
 const schedIdx = findSchedIdx(schedule, rawPhase, N);
 const curFrame = schedule[schedIdx].frame;
 
-const chartY = GY + 26;
+const chartY = Math.round((GY + H) / 2);
 const chartLeft = 10, chartRight = W - 10, chartW = chartRight - chartLeft;
-const getX = ph => chartLeft + (ph / TAU) * chartW;
+// Offset so Contact (ph=TAU×0.25) is at the left edge; cycle runs Contact→Passing→Contact2→Passing2→Contact
+const getX = ph => chartLeft + (((ph / TAU - 0.25 + 1) % 1)) * chartW;
 
 // Closest drawing to each key pose (circular distance handles Passing2 at ph=0≡TAU)
 const poseKeys = new Map();
