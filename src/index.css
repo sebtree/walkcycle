@@ -1,6 +1,7 @@
 *, *::before, *::after { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
 body { background: #1A1510; }
+[data-theme="pink"] body { background: #1A0815; }
 
 /* ── Theme variables ────────────────────────────────────────────────────────── */
 :root, [data-theme="light"] {

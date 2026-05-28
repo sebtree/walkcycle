@@ -1280,6 +1280,7 @@ useEffect(() => {
   img.src = '/walkcycle/marsvin.png';
   img.onload = () => { marsvinImgRef.current = img; };
 }, []);
+useEffect(() => { new Image().src = '/walkcycle/seb.jpg'; }, []);
 
 live.current = {params,style,playback,keyPoses,onionOn,onionCount,marsvinMode,tab};
 const toggleExpand = key => setExpandedSliders(s => { const n=new Set(s); n.has(key)?n.delete(key):n.add(key); return n; });
@@ -1640,25 +1641,138 @@ boxShadow:`0 4px 16px ${ha(T.ink,0.18)}`,
         background:T.ink,border:`2px solid ${T.paper}`,borderRadius:'50%',
         transform:'translateX(-50%)',pointerEvents:'none',boxShadow:`0 1px 4px ${ha(T.ink,0.2)}`}}/>
     </div>
-    <div style={{display:'flex',gap:5,flexWrap:'wrap',alignItems:'center'}}>
-      {KEY_POSES.map(kp=>(
-        <button key={kp.key} onClick={()=>setKeyPoses(v=>({...v,[kp.key]:!v[kp.key]}))}
-          style={{...tgl(keyPoses[kp.key]),borderColor:keyPoses[kp.key]?kp.color:T.border,
-                  color:keyPoses[kp.key]?kp.color:T.ink3,display:'flex',alignItems:'center',gap:4}}>
-          <span style={{width:5,height:5,borderRadius:'50%',display:'inline-block',
-            background:keyPoses[kp.key]?kp.color:T.borderLt,flexShrink:0}}/>
-          {kp.label}
-        </button>
-      ))}
+    <div style={{display:'flex',alignItems:'flex-start',gap:5}}>
+      <div style={{display:'flex',gap:5,flexWrap:'wrap',flex:1}}>
+        {KEY_POSES.map(kp=>(
+          <button key={kp.key} onClick={()=>setKeyPoses(v=>({...v,[kp.key]:!v[kp.key]}))}
+            style={{...tgl(keyPoses[kp.key]),borderColor:keyPoses[kp.key]?kp.color:T.border,
+                    color:keyPoses[kp.key]?kp.color:T.ink3,
+                    padding:'0 8px',lineHeight:'18px'}}>
+            {kp.label}
+          </button>
+        ))}
+      </div>
       <button onClick={()=>setSebOpen(v=>!v)}
-        style={{marginLeft:'auto',
-                background:sebOpen?ha(T.amber,0.15):(style.themeIdx===1?ha(T.amber,0.06):ha(T.ink,0.09)),
-                border:`1px solid ${sebOpen?T.amber:(style.themeIdx===1?ha(T.amber,0.45):T.border)}`,
+        style={{flexShrink:0,
+                background:sebOpen?ha(T.amber,0.15):(style.themeIdx===1?'transparent':ha(T.ink,0.09)),
+                border:`1px solid ${sebOpen?T.amber:T.border}`,
                 color:sebOpen?T.amber:T.ink2,
-                borderRadius:3,padding:'3px 8px',cursor:'pointer',
-                fontSize:9,letterSpacing:'0.1em',fontFamily:'inherit',
+                borderRadius:3,padding:'0 8px',cursor:'pointer',
+                fontSize:9,letterSpacing:'0.1em',fontFamily:'inherit',lineHeight:1,
+                display:'flex',alignItems:'center',gap:4,
                 fontWeight:'bold',textTransform:'uppercase',transition:'all 0.12s'}}>
-        👀 SEB WHO??
+        {style.themeIdx===1?<svg width="44" height="18" viewBox="0 12 58 24" xmlns="http://www.w3.org/2000/svg" style={{display:'block'}}>
+          <circle cx="43" cy="24" r="15" fill="none" stroke="#ff0000" strokeWidth="6" opacity="0.04"/>
+          <circle cx="43" cy="24" r="14" fill="none" stroke="#ff1010" strokeWidth="5" opacity="0.07"/>
+          <circle cx="43" cy="24" r="13" fill="none" stroke="#dd0000" strokeWidth="4" opacity="0.13"/>
+          <circle cx="43" cy="24" r="12.5" fill="none" stroke="#cc0000" strokeWidth="3" opacity="0.22"/>
+          <circle cx="43" cy="24" r="12" fill="#0c0c0c"/>
+          <circle cx="43" cy="24" r="12" fill="none" stroke="#3a3a3a" strokeWidth="1.2"/>
+          <circle cx="43" cy="24" r="10" fill="none" stroke="#222" strokeWidth="0.8"/>
+          <line x1="43" y1="12" x2="43" y2="15" stroke="#505050" strokeWidth="1.5" strokeLinecap="round"/>
+          <line x1="55" y1="24" x2="52" y2="24" stroke="#505050" strokeWidth="1.5" strokeLinecap="round"/>
+          <line x1="43" y1="36" x2="43" y2="33" stroke="#505050" strokeWidth="1.5" strokeLinecap="round"/>
+          <line x1="31" y1="24" x2="34" y2="24" stroke="#505050" strokeWidth="1.5" strokeLinecap="round"/>
+          <line x1="51.5" y1="15.5" x2="49.4" y2="17.6" stroke="#404040" strokeWidth="1" strokeLinecap="round"/>
+          <line x1="51.5" y1="32.5" x2="49.4" y2="30.4" stroke="#404040" strokeWidth="1" strokeLinecap="round"/>
+          <line x1="34.5" y1="15.5" x2="36.6" y2="17.6" stroke="#404040" strokeWidth="1" strokeLinecap="round"/>
+          <line x1="34.5" y1="32.5" x2="36.6" y2="30.4" stroke="#404040" strokeWidth="1" strokeLinecap="round"/>
+          <circle cx="43" cy="24" r="9.5" fill="none" stroke="#ff0000" strokeWidth="5" opacity="0.1"/>
+          <circle cx="43" cy="24" r="9" fill="none" stroke="#ff0000" strokeWidth="4" opacity="0.18"/>
+          <circle cx="43" cy="24" r="8.5" fill="none" stroke="#ee0000" strokeWidth="3" opacity="0.3"/>
+          <circle cx="43" cy="24" r="8" fill="none" stroke="#cc0000" strokeWidth="2.5" opacity="0.55"/>
+          <circle cx="43" cy="24" r="7.5" fill="none" stroke="#cc0000" strokeWidth="2" opacity="1"/>
+          <circle cx="43" cy="24" r="5.5" fill="#660000"/>
+          <circle cx="43" cy="24" r="4" fill="#990000"/>
+          <circle cx="43" cy="24" r="2.5" fill="#cc1111"/>
+          <circle cx="43" cy="24" r="1.2" fill="#ff3030"/>
+          <circle cx="44.3" cy="22.7" r="0.9" fill="#ffaaaa"/>
+          <line x1="43" y1="16" x2="43" y2="20.5" stroke="#ff0000" strokeWidth="2" strokeLinecap="round" opacity="0.2"/>
+          <line x1="43" y1="16" x2="43" y2="20.5" stroke="#ff2020" strokeWidth="0.7" strokeLinecap="round"/>
+          <line x1="43" y1="27.5" x2="43" y2="32" stroke="#ff0000" strokeWidth="2" strokeLinecap="round" opacity="0.2"/>
+          <line x1="43" y1="27.5" x2="43" y2="32" stroke="#ff2020" strokeWidth="0.7" strokeLinecap="round"/>
+          <line x1="35.5" y1="24" x2="40" y2="24" stroke="#ff0000" strokeWidth="2" strokeLinecap="round" opacity="0.2"/>
+          <line x1="35.5" y1="24" x2="40" y2="24" stroke="#ff2020" strokeWidth="0.7" strokeLinecap="round"/>
+          <line x1="46" y1="24" x2="50.5" y2="24" stroke="#ff0000" strokeWidth="2" strokeLinecap="round" opacity="0.2"/>
+          <line x1="46" y1="24" x2="50.5" y2="24" stroke="#ff2020" strokeWidth="0.7" strokeLinecap="round"/>
+          <path d="M2 24 Q13 14 26 24 Q13 35 2 24Z" fill="#f0f0f0" stroke="#cccccc" strokeWidth="1"/>
+          <path d="M2 24 Q13 14 26 24" fill="none" stroke="#aaaaaa" strokeWidth="1.8" strokeLinecap="round"/>
+          <circle cx="13" cy="24" r="6.5" fill="#006622"/>
+          <circle cx="13" cy="24" r="6.5" fill="none" stroke="#00ff44" strokeWidth="0.9"/>
+          <circle cx="13" cy="24" r="4.5" fill="none" stroke="#004411" strokeWidth="0.5"/>
+          <circle cx="13" cy="24" r="2.8" fill="#080808"/>
+          <circle cx="14.3" cy="22.7" r="1.2" fill="white"/>
+          <path d="M0 25 Q13 8 28 25" fill="none" stroke="#00ff41" strokeWidth="1.5" strokeLinecap="round"/>
+          <path d="M0 23 Q13 41 28 23" fill="none" stroke="#00cc33" strokeWidth="1" strokeLinecap="round"/>
+        </svg>:style.themeIdx===2?<svg width="40" height="18" viewBox="0 11 58 26" xmlns="http://www.w3.org/2000/svg" style={{display:'block'}}>
+          <circle cx="14" cy="24" r="12" fill="none" stroke="#1a1a1a" strokeWidth="1.5"/>
+          <circle cx="42" cy="24" r="12" fill="none" stroke="#1a1a1a" strokeWidth="1.5"/>
+          <path d="M2 24 Q14 14 26 24 Q14 34 2 24Z" fill="#fff0f8" stroke="#1a1a1a" strokeWidth="1.5"/>
+          <path d="M2 24 Q14 14 26 24" fill="none" stroke="#1a1a1a" strokeWidth="2.2" strokeLinecap="round"/>
+          <circle cx="14" cy="24" r="6.5" fill="#dd4488"/>
+          <circle cx="14" cy="24" r="6.5" fill="none" stroke="#ff99cc" strokeWidth="0.8"/>
+          <circle cx="14" cy="24" r="2.8" fill="#220011"/>
+          <circle cx="15.3" cy="22.7" r="1.2" fill="white"/>
+          <line x1="6.8" y1="20.8" x2="5" y2="17" stroke="#1a1a1a" strokeWidth="1.2" strokeLinecap="round"/>
+          <line x1="10.4" y1="19.5" x2="9" y2="15.5" stroke="#1a1a1a" strokeWidth="1.2" strokeLinecap="round"/>
+          <line x1="14" y1="19" x2="14" y2="14.5" stroke="#1a1a1a" strokeWidth="1.2" strokeLinecap="round"/>
+          <line x1="17.6" y1="19.5" x2="18.5" y2="15.5" stroke="#1a1a1a" strokeWidth="1.2" strokeLinecap="round"/>
+          <line x1="21.2" y1="20.8" x2="23" y2="17" stroke="#1a1a1a" strokeWidth="1.2" strokeLinecap="round"/>
+          <line x1="6.8" y1="27.2" x2="5.5" y2="29" stroke="#1a1a1a" strokeWidth="1" strokeLinecap="round"/>
+          <line x1="10.4" y1="28.5" x2="10" y2="30.5" stroke="#1a1a1a" strokeWidth="1" strokeLinecap="round"/>
+          <line x1="14" y1="29" x2="14" y2="31" stroke="#1a1a1a" strokeWidth="1" strokeLinecap="round"/>
+          <line x1="17.6" y1="28.5" x2="18" y2="30.5" stroke="#1a1a1a" strokeWidth="1" strokeLinecap="round"/>
+          <line x1="21.2" y1="27.2" x2="22.5" y2="29" stroke="#1a1a1a" strokeWidth="1" strokeLinecap="round"/>
+          <path d="M30 24 Q42 14 54 24 Q42 34 30 24Z" fill="#fff0f8" stroke="#1a1a1a" strokeWidth="1.5"/>
+          <path d="M30 24 Q42 14 54 24" fill="none" stroke="#1a1a1a" strokeWidth="2.2" strokeLinecap="round"/>
+          <circle cx="42" cy="24" r="6.5" fill="#dd4488"/>
+          <circle cx="42" cy="24" r="6.5" fill="none" stroke="#ff99cc" strokeWidth="0.8"/>
+          <circle cx="42" cy="24" r="2.8" fill="#220011"/>
+          <circle cx="43.3" cy="22.7" r="1.2" fill="white"/>
+          <line x1="34.8" y1="20.8" x2="33" y2="17" stroke="#1a1a1a" strokeWidth="1.2" strokeLinecap="round"/>
+          <line x1="38.4" y1="19.5" x2="37" y2="15.5" stroke="#1a1a1a" strokeWidth="1.2" strokeLinecap="round"/>
+          <line x1="42" y1="19" x2="42" y2="14.5" stroke="#1a1a1a" strokeWidth="1.2" strokeLinecap="round"/>
+          <line x1="45.6" y1="19.5" x2="46.5" y2="15.5" stroke="#1a1a1a" strokeWidth="1.2" strokeLinecap="round"/>
+          <line x1="49.2" y1="20.8" x2="51" y2="17" stroke="#1a1a1a" strokeWidth="1.2" strokeLinecap="round"/>
+          <line x1="34.8" y1="27.2" x2="33.5" y2="29" stroke="#1a1a1a" strokeWidth="1" strokeLinecap="round"/>
+          <line x1="38.4" y1="28.5" x2="38" y2="30.5" stroke="#1a1a1a" strokeWidth="1" strokeLinecap="round"/>
+          <line x1="42" y1="29" x2="42" y2="31" stroke="#1a1a1a" strokeWidth="1" strokeLinecap="round"/>
+          <line x1="45.6" y1="28.5" x2="46" y2="30.5" stroke="#1a1a1a" strokeWidth="1" strokeLinecap="round"/>
+          <line x1="49.2" y1="27.2" x2="50.5" y2="29" stroke="#1a1a1a" strokeWidth="1" strokeLinecap="round"/>
+        </svg>:<svg width="38" height="18" viewBox="0 13 56 26" xmlns="http://www.w3.org/2000/svg" style={{display:'block'}}>
+          <defs>
+            <clipPath id="le"><path d="M2 26 Q14 20 26 26 Q14 35 2 26Z"/></clipPath>
+            <clipPath id="re"><path d="M30 26 Q42 20 54 26 Q42 35 30 26Z"/></clipPath>
+          </defs>
+          <circle cx="14" cy="26" r="12" fill="none" stroke="#1a1a1a" strokeWidth="1.5"/>
+          <circle cx="42" cy="26" r="12" fill="none" stroke="#1a1a1a" strokeWidth="1.5"/>
+          <path d="M2 26 Q14 20 26 26 Q14 35 2 26Z" fill="#f0c0c0"/>
+          <g clipPath="url(#le)">
+            <path d="M4 27 Q6 25 9 26" fill="none" stroke="#cc4444" strokeWidth="0.7" strokeLinecap="round"/>
+            <path d="M6 29 Q9 27 12 28" fill="none" stroke="#cc4444" strokeWidth="0.7" strokeLinecap="round"/>
+            <path d="M20 26 Q22 25 24 27" fill="none" stroke="#cc4444" strokeWidth="0.7" strokeLinecap="round"/>
+            <path d="M18 29 Q20 28 23 30" fill="none" stroke="#cc4444" strokeWidth="0.7" strokeLinecap="round"/>
+            <path d="M10 23 Q12 22 15 23" fill="none" stroke="#cc4444" strokeWidth="0.6" strokeLinecap="round"/>
+            <ellipse cx="3" cy="26" rx="2" ry="1.5" fill="#e08080" opacity="0.5"/>
+            <circle cx="18" cy="26" r="5.5" fill="#1a1a1a"/>
+            <circle cx="19.5" cy="24.5" r="1.8" fill="white"/>
+          </g>
+          <path d="M2 26 Q14 20 26 26 Q14 35 2 26Z" fill="none" stroke="#1a1a1a" strokeWidth="1.5"/>
+          <path d="M2 26 Q14 20 26 26" fill="none" stroke="#1a1a1a" strokeWidth="2.5" strokeLinecap="round"/>
+          <path d="M30 26 Q42 20 54 26 Q42 35 30 26Z" fill="#f0c0c0"/>
+          <g clipPath="url(#re)">
+            <path d="M32 27 Q34 25 37 26" fill="none" stroke="#cc4444" strokeWidth="0.7" strokeLinecap="round"/>
+            <path d="M34 29 Q37 27 40 28" fill="none" stroke="#cc4444" strokeWidth="0.7" strokeLinecap="round"/>
+            <path d="M48 26 Q50 25 52 27" fill="none" stroke="#cc4444" strokeWidth="0.7" strokeLinecap="round"/>
+            <path d="M46 29 Q48 28 51 30" fill="none" stroke="#cc4444" strokeWidth="0.7" strokeLinecap="round"/>
+            <path d="M38 23 Q40 22 43 23" fill="none" stroke="#cc4444" strokeWidth="0.6" strokeLinecap="round"/>
+            <ellipse cx="31" cy="26" rx="2" ry="1.5" fill="#e08080" opacity="0.5"/>
+            <circle cx="46" cy="26" r="5.5" fill="#1a1a1a"/>
+            <circle cx="47.5" cy="24.5" r="1.8" fill="white"/>
+          </g>
+          <path d="M30 26 Q42 20 54 26 Q42 35 30 26Z" fill="none" stroke="#1a1a1a" strokeWidth="1.5"/>
+          <path d="M30 26 Q42 20 54 26" fill="none" stroke="#1a1a1a" strokeWidth="2.5" strokeLinecap="round"/>
+        </svg>} SEB WHO??
       </button>
     </div>
   </div>
