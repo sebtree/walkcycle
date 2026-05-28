@@ -2104,10 +2104,10 @@ boxShadow:`0 4px 16px ${ha(T.ink,0.18)}`,
             Seb
           </div>
           <div style={{fontSize:9,color:T.ink2,lineHeight:1.65}}>
-            Hobby animator, special needs teaching assistant, accidental app developer and reluctant servant to two guinea pigs — based in the high valley of Stockholm.
+            Hobby animator, special needs teaching assistant, accidental app developer and reluctant servant to my sons two guinea pigs — based in the high valley of Stockholm.
           </div>
           <div style={{fontSize:9,color:T.ink2,lineHeight:1.65}}>
-            I can't code, but I can argue with an AI until it does what I want. This tool is proof of that.
+            I can't write code, but I can argue with an AI until it does what I want. This tool is proof of that.
           </div>
           <div style={{fontSize:9,color:T.ink2,lineHeight:1.65}}>
             Feedback is always welcome — feel free to reach out for any reason!
