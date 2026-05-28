@@ -1415,7 +1415,7 @@ const stepBwd=()=>{
 };
 
 // Presets
-const applyPreset=(pre,name)=>{setParams(p=>({...p,...pre,fps:p.fps,animOn:p.animOn}));setActivePreset(name||null);};
+const applyPreset=(pre,name)=>{setParams(p=>({...p,...pre,fps:p.fps,...('animOn' in pre ? {} : {animOn:p.animOn})}));setActivePreset(name||null);};
 const handleSavePre=async()=>{
 if(!saveName.trim()) return;
 const id=`${Date.now()}`;
