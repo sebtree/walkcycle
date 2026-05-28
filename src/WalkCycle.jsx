@@ -587,10 +587,11 @@ const BG_COLORS = [
 {name:'Blush',     bg:'#FDE4F0',light:true},
 ];
 // ── Drawing schedule ──────────────────────────────────────────────────────────
-// Traditional animators fix a maximum number of unique drawings per cycle and
-// increase the hold (exposure) at slow speeds instead of adding more drawings.
-// Drawings are placed evenly in pose-space (feel-output), so holds are naturally
-// longer near key poses (slow motion) and shorter in between (fast motion).
+// Within each quarter cycle a power ease pulls drawings toward the key pose at
+// the quarter's start (Contact → Passing → Contact2 → Passing2 → …).
+//   feel=0 → linear, even spacing, all holds equal
+//   feel=1 → cubic ease, drawings bunch near each key pose
+// Drawing COUNT = floor(N / animOn) — set by speed + animOn only, never by feel.
 let _schedMemoKey = null, _schedMemoVal = null;
 function buildSchedule(p) {
   const memoKey = `${p.fps}|${p.speed}|${p.animOn}|${p.feel}|${p.feelIn}|${p.feelOut}`;
@@ -598,69 +599,38 @@ function buildSchedule(p) {
 
   const N = cycLen(p.fps, p.speed);
   const minHold = p.animOn;
-  const maxDrw = Math.min(
-    Math.max(4, Math.round(p.fps / minHold)),
-    Math.floor(N / minHold)
-  );
+  // Round to nearest multiple of 4 so key poses always land on exact quarter boundaries.
+  const raw = Math.min(Math.max(4, Math.round(p.fps / minHold)), Math.floor(N / minHold));
+  const numDrawings = Math.max(4, Math.round(raw / 4) * 4);
 
-  // Find the raw frame whose pose phase is closest to targetPh (circular distance).
-  const frameAtPhase = targetPh => {
-    let bestI = 0, bestD = Infinity;
-    for (let i = 0; i < N; i++) {
-      const ph = applyFeel(((i/N + PHASE_OFFSET) % 1), p.feel, p.feelIn, p.feelOut) * TAU;
-      const d = Math.min(Math.abs(ph - targetPh), TAU - Math.abs(ph - targetPh));
-      if (d < bestD) { bestD = d; bestI = i; }
-    }
-    return bestI;
-  };
+  const easePow = 1 + p.feel * 2;  // 1 (linear) … 3 (cubic)
 
-  // Lock in the 4 key pose frames — these are always present.
-  const keyFrameSet = new Set();
-  KEY_POSES.forEach(kp => keyFrameSet.add(frameAtPhase(kp.phase)));
-  const frames = new Set(keyFrameSet);
+  // Frames: evenly spaced — timing is set by speed + animOn, never by feel.
+  // Phase: eased within each quarter-cycle segment — this is the spacing control.
+  // At feel=0 the inbetween drawings are linearly spaced in pose-space between key poses.
+  // At feel=1 they are pulled tight against the flanking key poses (slow-in/slow-out).
+  const entries = [];
+  for (let k = 0; k < numDrawings; k++) {
+    const frame = Math.round(k / numDrawings * N) % N;
 
-  // BFS halving in pose space: place drawings at the physical midpoint between surrounding
-  // poses. Only subdivide if a frame was actually placed — a rejected interval is already
-  // too dense to fit anything in its halves either.
-  // Extended phase arithmetic: Passing2(TAU)→Contact uses ep=TAU*1.25 so the midpoint
-  // (TAU*1.125) reduces cleanly to TAU*0.125 via %TAU.
-  const KEY_PH = KEY_POSES.map(kp => kp.phase);
-  const queue = [
-    {sp: KEY_PH[0], ep: KEY_PH[1]},
-    {sp: KEY_PH[1], ep: KEY_PH[2]},
-    {sp: KEY_PH[2], ep: KEY_PH[3]},
-    {sp: KEY_PH[3], ep: KEY_PH[0] + TAU},
-  ];
+    const u   = (k / numDrawings + PHASE_OFFSET) % 1;
+    const seg = Math.floor(u * 4);   // quarter: 0=Passing2→Contact, 1=Contact→Passing,
+                                     //          2=Passing→Contact2, 3=Contact2→Passing2
+    const t   = u * 4 - seg;         // position within quarter [0, 1)
 
-  while (frames.size < maxDrw && queue.length > 0) {
-    const {sp, ep} = queue.shift();
-    const midExt = (sp + ep) / 2;
-    const midFrame = frameAtPhase(midExt % TAU);
+    // Symmetric ease: cluster near both ends of the quarter (the two flanking key poses).
+    const tEased = t < 0.5
+      ? 0.5 * Math.pow(2 * t, easePow)
+      : 1 - 0.5 * Math.pow(2 * (1 - t), easePow);
 
-    const sizeBefore = frames.size;
-    if (!frames.has(midFrame)) {
-      const sorted = [...frames, midFrame].sort((a, b) => a - b);
-      const idx = sorted.indexOf(midFrame);
-      const prev = sorted[(idx - 1 + sorted.length) % sorted.length];
-      const next = sorted[(idx + 1) % sorted.length];
-      const holdBefore = (midFrame - prev + N) % N;
-      const holdAfter  = (next - midFrame + N) % N;
-      if (holdBefore >= minHold && holdAfter >= minHold) frames.add(midFrame);
-    }
-
-    // Only subdivide if a new frame was actually placed; otherwise the interval
-    // is saturated and re-queuing it (even halved) produces the same result forever.
-    if (frames.size > sizeBefore && frames.size < maxDrw) {
-      queue.push({sp, ep: midExt});
-      queue.push({sp: midExt, ep});
-    }
+    const ph = (seg / 4 + tEased / 4) * TAU;
+    entries.push({frame, ph, seg});
   }
 
-  const sorted = [...frames].sort((a, b) => a - b);
-  _schedMemoVal = sorted.map((frame, k) => {
-    const hold = k+1 < sorted.length ? sorted[k+1] - frame : N - frame + sorted[0];
-    const ph = applyFeel(((frame/N + PHASE_OFFSET) % 1), p.feel, p.feelIn, p.feelOut) * TAU;
-    return {frame, hold, ph};
+  entries.sort((a, b) => a.frame - b.frame);
+  _schedMemoVal = entries.map((e, k) => {
+    const nextFrame = k + 1 < entries.length ? entries[k+1].frame : N + entries[0].frame;
+    return {frame: e.frame, hold: nextFrame - e.frame, ph: e.ph, seg: e.seg};
   });
   _schedMemoKey = memoKey;
   return _schedMemoVal;
@@ -749,7 +719,7 @@ function drawWalkTimingChart(ctx, p, rawPhase, cx, dir, light, forExport) {
 const N = cycLen(p.fps, p.speed);
 const schedule = buildSchedule(p);
 if (!schedule.length) return;
-const drawn = schedule.map((s, k) => ({i: s.frame, ph: s.ph, hold: s.hold, drwNum: k+1}));
+const drawn = schedule.map((s, k) => ({i: s.frame, ph: s.ph, hold: s.hold, drwNum: k+1, seg: s.seg}));
 const schedIdx = findSchedIdx(schedule, rawPhase, N);
 const curFrame = schedule[schedIdx].frame;
 const curPhase = schedule[schedIdx].ph;
@@ -768,49 +738,23 @@ KEY_POSES.forEach(kp => {
   poseKeys.set(best.i, kp.key);
 });
 
-const kpPhases = KEY_POSES.map(kp => kp.phase);
-// Shift by half a frame back so the keyframe itself shows the chart leading up to it;
-// the chart switches to the next segment on the very first drawing after the key.
-const halfSnap = TAU / N / 2;
-const shiftedPhase = (curPhase - halfSnap + TAU) % TAU;
-const activeIdx = (() => {
-  for (let ci = 0; ci < 4; ci++) {
-    const s = kpPhases[ci], e = kpPhases[(ci+1)%4];
-    if (e > s ? (shiftedPhase >= s && shiftedPhase < e) : (shiftedPhase >= s || shiftedPhase < e)) return ci;
-  }
-  return 0;
-})();
+// Active segment = the quarter the current drawing is in (outgoing: key at top, next key at bottom).
+const ci = schedule[schedIdx].seg;
 
-// Sort by phase so segment 3 (wrap-around) is handled correctly.
-// Without sorting, frame indices jump (e.g. i=19 at ph≈0 in orig, but ph≈TAU in doubled)
-// and the x0>x1 loop produces an empty chart for segment 3.
-const drawnX = [
-  ...drawn,
-  ...drawn.map(d => ({...d, i: d.i+N, ph: d.ph+TAU}))
-].sort((a, b) => a.ph - b.ph);
+// Drawings in this segment, plus the first drawing of the next segment as the endpoint key.
+const nextKeyDrawing = drawn.find(d => d.seg === (ci + 1) % 4);
+const segDrawings = drawn.filter(d => d.seg === ci)
+  .concat(nextKeyDrawing ? [nextKeyDrawing] : []);
 
-const findRefXIdx = target => {
-  let best=0, bestD=Infinity;
-  drawnX.forEach((d,xi) => { const dd=Math.abs(d.ph-target); if(dd<bestD){bestD=dd;best=xi;} });
-  return best;
+// Y-axis is phase-based: shows physical pose spacing, not temporal frame spacing.
+// Top = segment start key pose, bottom = segment end key pose.
+const segPhStart = ci / 4 * TAU;
+const segPhLen   = TAU / 4;
+
+const getSegY = ph => {
+  const dist = ((ph - segPhStart) % TAU + TAU) % TAU;
+  return Math.max(chartTop, Math.min(chartBot, chartTop + (dist / segPhLen) * chartH));
 };
-
-const ci = activeIdx;
-const x0 = findRefXIdx(kpPhases[ci]);
-const x1 = findRefXIdx(ci === 3 ? kpPhases[0]+TAU : kpPhases[ci+1]);
-
-const segFrames = [];
-for (let j = x0; j <= x1 && j < drawnX.length; j++) segFrames.push(drawnX[j]);
-
-// Use actual drawing phases as Y-axis bounds — ideal key-pose phases rarely
-// land exactly on a discrete frame, causing clamping and uneven apparent spacing.
-const segPhaseStart = segFrames.length > 0 ? segFrames[0].ph : kpPhases[ci];
-const segPhaseEnd   = segFrames.length > 0 ? segFrames[segFrames.length-1].ph
-                    : (ci === 3 ? kpPhases[0]+TAU : kpPhases[ci+1]);
-const segPhaseDur   = Math.max(segPhaseEnd - segPhaseStart, TAU/N);
-
-const getSegY = ph => Math.max(chartTop, Math.min(chartBot,
-  chartTop + ((ph - segPhaseStart) / segPhaseDur) * chartH));
 
 const ink   = light ? 'rgba(0,0,0,0.42)' : 'rgba(255,255,255,0.42)';
 const inkHi = light ? 'rgba(0,0,0,0.88)' : 'rgba(255,255,255,0.88)';
@@ -823,11 +767,10 @@ ctx.strokeStyle = ink; ctx.lineWidth = 1.6;
 ctx.beginPath(); ctx.moveTo(chartX,chartTop); ctx.lineTo(chartX,chartBot); ctx.stroke();
 
 ctx.font = `${fontSize}px Courier New`; ctx.textBaseline = 'middle';
-segFrames.forEach(({i, ph, hold, drwNum}) => {
-  const realI = i % N;
+segDrawings.forEach(({i, ph, hold, drwNum}) => {
   const fy = getSegY(ph);
-  const isCur = realI === curFrame;
-  const poseKey = poseKeys.get(realI);
+  const isCur = i === curFrame;
+  const poseKey = poseKeys.get(i);
   const isKey = poseKey !== undefined;
 
   ctx.strokeStyle = isCur ? inkHi : ink;
