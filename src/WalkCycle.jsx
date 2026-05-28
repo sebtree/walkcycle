@@ -599,16 +599,17 @@ function buildSchedule(p) {
 
   const N = cycLen(p.fps, p.speed);
   const minHold = p.animOn;
-  // Round to nearest multiple of 4 so key poses always land on exact quarter boundaries.
-  const raw = Math.min(Math.max(4, Math.round(p.fps / minHold)), Math.floor(N / minHold));
-  const numDrawings = Math.max(4, Math.round(raw / 4) * 4);
+  // Grows with N (speed): +2 drawings every 2×animOn frames of N, capped at 36/animOn.
+  const maxDrawings = Math.round(36 / minHold);
+  const numDrawings = Math.max(4, Math.min(Math.floor(N / (2 * minHold)) * 2, maxDrawings));
 
-  const easePow = 1 + p.feel * 2;  // 1 (linear) … 3 (cubic)
+  // feelIn: ease INTO Contact (cluster approaching heel strike, t→1 in incoming segments)
+  // feelOut: ease OUT OF Contact (cluster leaving heel strike, t→0 in outgoing segments)
+  const easeInPow  = 1 + p.feelIn  * 2;  // 1 (linear) … 3 (cubic)
+  const easeOutPow = 1 + p.feelOut * 2;
 
   // Frames: evenly spaced — timing is set by speed + animOn, never by feel.
   // Phase: eased within each quarter-cycle segment — this is the spacing control.
-  // At feel=0 the inbetween drawings are linearly spaced in pose-space between key poses.
-  // At feel=1 they are pulled tight against the flanking key poses (slow-in/slow-out).
   const entries = [];
   for (let k = 0; k < numDrawings; k++) {
     const frame = Math.round(k / numDrawings * N) % N;
@@ -618,10 +619,13 @@ function buildSchedule(p) {
                                      //          2=Passing→Contact2, 3=Contact2→Passing2
     const t   = u * 4 - seg;         // position within quarter [0, 1)
 
-    // Symmetric ease: cluster near both ends of the quarter (the two flanking key poses).
-    const tEased = t < 0.5
-      ? 0.5 * Math.pow(2 * t, easePow)
-      : 1 - 0.5 * Math.pow(2 * (1 - t), easePow);
+    // Segments 0, 2 end at a Contact pose (t=1) — apply ease-IN (feelIn).
+    // Segments 1, 3 start at a Contact pose (t=0) — apply ease-OUT (feelOut).
+    // Passing poses are never clustered by either parameter.
+    const contactAtEnd = (seg === 0 || seg === 2);
+    const tEased = contactAtEnd
+      ? 1 - Math.pow(1 - t, easeInPow)   // cluster near t=1 (approaching Contact)
+      : Math.pow(t, easeOutPow);          // cluster near t=0 (leaving Contact)
 
     const ph = (seg / 4 + tEased / 4) * TAU;
     entries.push({frame, ph, seg});
@@ -711,23 +715,22 @@ if (img) {
 ctx.restore();
 }
 
-// ── Classic animation timing chart overlay ────────────────────────────────────
-// Shows spacing of drawings within the two surrounding key poses.
-// The chart leads UP TO the ending keyframe (key sits at chart bottom).
-// Switches to the next segment on the first drawing after the keyframe.
-function drawWalkTimingChart(ctx, p, rawPhase, cx, dir, light, forExport) {
+// ── Horizontal spacing chart ─────────────────────────────────────────────────
+// Drawn below the ground line; X = physical pose spacing (phase), full cycle.
+// Passing2 at left edge, Contact at 25%, Passing at 50%, Contact2 at 75%.
+function drawWalkTimingChart(ctx, p, rawPhase, cx, dir, light, forExport, keyPoseState = {}) {
 const N = cycLen(p.fps, p.speed);
 const schedule = buildSchedule(p);
 if (!schedule.length) return;
 const drawn = schedule.map((s, k) => ({i: s.frame, ph: s.ph, hold: s.hold, drwNum: k+1, seg: s.seg}));
 const schedIdx = findSchedIdx(schedule, rawPhase, N);
 const curFrame = schedule[schedIdx].frame;
-const curPhase = schedule[schedIdx].ph;
 
-const chartTop = 44, chartBot = GY - 22, chartH = chartBot - chartTop;
-const chartX = 20;
+const chartY = GY + 26;
+const chartLeft = 10, chartRight = W - 10, chartW = chartRight - chartLeft;
+const getX = ph => chartLeft + (ph / TAU) * chartW;
 
-// Circular distance matching — handles passing2 at phase TAU (≡0 mod TAU, e.g. frame 20)
+// Closest drawing to each key pose (circular distance handles Passing2 at ph=0≡TAU)
 const poseKeys = new Map();
 KEY_POSES.forEach(kp => {
   let best = drawn[0], bestD = Infinity;
@@ -738,58 +741,51 @@ KEY_POSES.forEach(kp => {
   poseKeys.set(best.i, kp.key);
 });
 
-// Active segment = the quarter the current drawing is in (outgoing: key at top, next key at bottom).
-const ci = schedule[schedIdx].seg;
-
-// Drawings in this segment, plus the first drawing of the next segment as the endpoint key.
-const nextKeyDrawing = drawn.find(d => d.seg === (ci + 1) % 4);
-const segDrawings = drawn.filter(d => d.seg === ci)
-  .concat(nextKeyDrawing ? [nextKeyDrawing] : []);
-
-// Y-axis is phase-based: shows physical pose spacing, not temporal frame spacing.
-// Top = segment start key pose, bottom = segment end key pose.
-const segPhStart = ci / 4 * TAU;
-const segPhLen   = TAU / 4;
-
-const getSegY = ph => {
-  const dist = ((ph - segPhStart) % TAU + TAU) % TAU;
-  return Math.max(chartTop, Math.min(chartBot, chartTop + (dist / segPhLen) * chartH));
-};
-
 const ink   = light ? 'rgba(0,0,0,0.42)' : 'rgba(255,255,255,0.42)';
 const inkHi = light ? 'rgba(0,0,0,0.88)' : 'rgba(255,255,255,0.88)';
-
-const fontSize = Math.min(9, Math.max(6, Math.floor(220/drawn.length)));
+const fontSize = Math.max(5, Math.min(8, Math.floor(chartW / drawn.length * 0.65)));
 
 ctx.save();
 
-ctx.strokeStyle = ink; ctx.lineWidth = 1.6;
-ctx.beginPath(); ctx.moveTo(chartX,chartTop); ctx.lineTo(chartX,chartBot); ctx.stroke();
+// Horizontal axis line
+ctx.strokeStyle = ink; ctx.lineWidth = 1.2;
+ctx.beginPath(); ctx.moveTo(chartLeft, chartY); ctx.lineTo(chartRight, chartY); ctx.stroke();
 
-ctx.font = `${fontSize}px Courier New`; ctx.textBaseline = 'middle';
-segDrawings.forEach(({i, ph, hold, drwNum}) => {
-  const fy = getSegY(ph);
+ctx.font = `${fontSize}px Courier New`;
+ctx.textAlign = 'center';
+ctx.textBaseline = 'middle';
+
+drawn.forEach(({i, ph, hold, drwNum}) => {
+  const fx = getX(ph);
   const isCur = i === curFrame;
   const poseKey = poseKeys.get(i);
   const isKey = poseKey !== undefined;
 
-  ctx.strokeStyle = isCur ? inkHi : ink;
-  ctx.fillStyle   = isCur ? inkHi : ink;
-  ctx.lineWidth = isCur ? 2.0 : (isKey ? 1.4 : 0.9);
-  const tickLen = isCur ? 9 : (isKey ? 7 : 5);
-  ctx.beginPath(); ctx.moveTo(chartX,fy); ctx.lineTo(chartX+tickLen,fy); ctx.stroke();
-  if (isCur) { ctx.beginPath(); ctx.arc(chartX,fy,2.5,0,TAU); ctx.fill(); }
+  const tickH = isCur ? 8 : (isKey ? 6 : 4);
+  const isActive = isKey && keyPoseState && keyPoseState[poseKey];
+  const kpColor = isActive ? KEY_POSES.find(k => k.key === poseKey).color : null;
+  const baseColor = isCur ? inkHi : ink;
 
-  const lx = chartX + 6;
-  const label = String(drwNum);
-  const tw = ctx.measureText(label).width;
-  ctx.lineWidth = 1.0;
+  ctx.strokeStyle = kpColor || baseColor;
+  ctx.fillStyle   = kpColor || baseColor;
+  ctx.lineWidth = isCur ? 2.0 : (isKey ? 1.4 : 0.8);
+
+  // Vertical tick through axis
+  ctx.beginPath(); ctx.moveTo(fx, chartY - tickH); ctx.lineTo(fx, chartY + tickH); ctx.stroke();
+
+  // Current frame: filled dot on axis
+  if (isCur) { ctx.beginPath(); ctx.arc(fx, chartY, 2.5, 0, TAU); ctx.fill(); }
+
+  // Drawing number above axis
+  const labelCy = chartY - tickH - 3 - fontSize * 0.5;
   if (isKey) {
-    ctx.beginPath(); ctx.arc(lx+tw/2,fy,fontSize*0.8,0,TAU); ctx.stroke();
-    ctx.fillText(label,lx,fy);
-  } else {
-    ctx.fillText(label,lx,fy);
+    ctx.lineWidth = 0.8;
+    ctx.beginPath(); ctx.arc(fx, labelCy, fontSize * 0.8, 0, TAU); ctx.stroke();
   }
+  ctx.fillText(String(drwNum), fx, labelCy);
+
+  // Hold count below axis
+  ctx.fillText(String(hold), fx, chartY + tickH + 3 + fontSize * 0.5);
 });
 
 ctx.restore();
@@ -902,7 +898,7 @@ drawFigure(ctx,computePose(phase,cx,p,dir),p,drawCol,dir,phase);
 } else {
 drawGuineaPig(ctx,cx,GY,phase,dir,p.legLen,marsvinImg);
 }
-if(st.showChart && !marsvinMode) drawWalkTimingChart(ctx,p,rawPhase,cx,dir,light,forExport);
+if(st.showChart && !marsvinMode) drawWalkTimingChart(ctx,p,rawPhase,cx,dir,light,forExport,keyPoseState);
 {
 const norm=((snappedRaw%TAU)+TAU)%TAU;
 const frameN=Math.min(Math.floor(norm/TAU*N)+1,N);
@@ -1788,7 +1784,7 @@ boxShadow:`0 4px 16px ${ha(T.ink,0.18)}`,
             ))}
           </div>
           <p style={{fontSize:9,color:T.ink3,lineHeight:1.6,fontStyle:'italic',margin:'4px 0 0'}}>
-            Dwells at contact &amp; toe-off — rushes through passing. Shapes drawing frame positions.
+            Ease In: drawings linger before heel strike. Ease Out: drawings linger after. Passing stays sparse.
           </p>
         </div>
         <div style={sec}>
