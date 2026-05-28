@@ -1272,6 +1272,7 @@ const [importErr,     setImportErr]     = useState(false);
 const [copyMsg,       setCopyMsg]       = useState('');
 const [marsvinMode,   setMarsvinMode]   = useState(false);
 const [marsvinHue,    setMarsvinHue]    = useState(0);
+const [sebOpen,       setSebOpen]       = useState(false);
 const [expandedSliders, setExpandedSliders] = useState(new Set());
 const marsvinImgRef = useRef(null);
 useEffect(() => {
@@ -1639,7 +1640,7 @@ boxShadow:`0 4px 16px ${ha(T.ink,0.18)}`,
         background:T.ink,border:`2px solid ${T.paper}`,borderRadius:'50%',
         transform:'translateX(-50%)',pointerEvents:'none',boxShadow:`0 1px 4px ${ha(T.ink,0.2)}`}}/>
     </div>
-    <div style={{display:'flex',gap:5,flexWrap:'wrap'}}>
+    <div style={{display:'flex',gap:5,flexWrap:'wrap',alignItems:'center'}}>
       {KEY_POSES.map(kp=>(
         <button key={kp.key} onClick={()=>setKeyPoses(v=>({...v,[kp.key]:!v[kp.key]}))}
           style={{...tgl(keyPoses[kp.key]),borderColor:keyPoses[kp.key]?kp.color:T.border,
@@ -1649,6 +1650,16 @@ boxShadow:`0 4px 16px ${ha(T.ink,0.18)}`,
           {kp.label}
         </button>
       ))}
+      <button onClick={()=>setSebOpen(v=>!v)}
+        style={{marginLeft:'auto',
+                background:sebOpen?ha(T.amber,0.15):(style.themeIdx===1?ha(T.amber,0.06):ha(T.ink,0.09)),
+                border:`1px solid ${sebOpen?T.amber:(style.themeIdx===1?ha(T.amber,0.45):T.border)}`,
+                color:sebOpen?T.amber:T.ink2,
+                borderRadius:3,padding:'3px 8px',cursor:'pointer',
+                fontSize:9,letterSpacing:'0.1em',fontFamily:'inherit',
+                fontWeight:'bold',textTransform:'uppercase',transition:'all 0.12s'}}>
+        👀 SEB WHO??
+      </button>
     </div>
   </div>
 
@@ -1955,6 +1966,59 @@ boxShadow:`0 4px 16px ${ha(T.ink,0.18)}`,
       PNG/GIF use selected aspect ratio (letterboxed). Spritesheet always uses native 3:2. Onion skins and ghost trail excluded. GIF uses per-drawing variable frame delays.
     </p>
   </div>
+
+  {/* About Seb modal */}
+  {sebOpen&&(
+    <div onClick={()=>setSebOpen(false)}
+      style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.55)',zIndex:9999,
+              display:'flex',alignItems:'center',justifyContent:'center'}}>
+      <div onClick={e=>e.stopPropagation()}
+        style={{background:T.paper,border:`1px solid ${T.border}`,borderRadius:5,
+                padding:20,maxWidth:460,width:'90%',
+                boxShadow:`0 8px 32px rgba(0,0,0,0.4)`,
+                display:'flex',gap:18,fontFamily:"'Courier New',monospace",
+                position:'relative'}}>
+        <button onClick={()=>setSebOpen(false)}
+          style={{position:'absolute',top:8,right:8,background:'transparent',
+                  border:'none',color:T.ink3,cursor:'pointer',fontSize:14,
+                  padding:'2px 6px',fontFamily:'inherit',lineHeight:1}}>✕</button>
+        <img src="/walkcycle/seb.jpg" alt="Seb"
+          style={{width:120,height:150,objectFit:'cover',objectPosition:'center top',
+                  borderRadius:3,flexShrink:0,border:`1px solid ${T.border}`}}/>
+        <div style={{display:'flex',flexDirection:'column',gap:7,flex:1,paddingTop:2,paddingRight:16}}>
+          <div style={{fontSize:14,fontWeight:'bold',color:T.ink,letterSpacing:'0.06em',fontFamily:"'Courier New',monospace"}}>
+            Seb
+          </div>
+          <div style={{fontSize:9,color:T.ink2,lineHeight:1.65}}>
+            Hobby animator, special needs teaching assistant, accidental app developer and reluctant servant to two guinea pigs — based in the high valley of Stockholm.
+          </div>
+          <div style={{fontSize:9,color:T.ink2,lineHeight:1.65}}>
+            I can't code, but I can argue with an AI until it does what I want. This tool is proof of that.
+          </div>
+          <div style={{fontSize:9,color:T.ink2,lineHeight:1.65}}>
+            Feedback is always welcome — feel free to reach out for any reason!
+          </div>
+          <div style={{display:'flex',flexDirection:'column',gap:4,marginTop:4}}>
+            <a href="mailto:sebastian.ledebur@gmail.com"
+              style={{...tgl(false),textDecoration:'none',display:'flex',
+                      alignItems:'center',gap:6,padding:'5px 9px',fontSize:9}}>
+              ✉ E-MAIL
+            </a>
+            <a href="https://www.instagram.com/" target="_blank" rel="noreferrer"
+              style={{...tgl(false),textDecoration:'none',display:'flex',
+                      alignItems:'center',gap:6,padding:'5px 9px',fontSize:9}}>
+              ◎ INSTA
+            </a>
+            <a href="https://ko-fi.com/I0M420DFH2" target="_blank" rel="noreferrer"
+              style={{...tgl(false),textDecoration:'none',display:'flex',
+                      alignItems:'center',gap:6,padding:'5px 9px',fontSize:9}}>
+              🍺 BEER
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  )}
 </div>
 
 );
