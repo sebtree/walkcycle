@@ -586,15 +586,80 @@ const BG_COLORS = [
 {name:'Dark',      bg:'#1A1815',light:false},
 {name:'Blush',     bg:'#FDE4F0',light:true},
 ];
+// ── Pose-distance reference cycle ───────────────────────────────────────────────
+// A dense LINEAR walk cycle (ARC_SAMPLES poses, phase evenly 0→TAU) is computed
+// once per pose-shape change, and the cumulative pose-distance (sum of every
+// joint's travel between consecutive samples) is measured. FEEL then spaces the
+// inbetween drawings by this MEASURED distance instead of an assumed sinusoid:
+//   feel=0 → equal pose-distance (even physical spacing of poses)
+//   feel up → inbetweens bunch toward the flanking Contact pose
+// Drawing COUNT and HOLDS are owned by speed (cycle) + animOn only — never by feel.
+const ARC_SAMPLES = 960;            // divisible by 4 so key poses land on exact indices
+let _arcMemoKey = null, _arcMemoVal = null;
+// Every joint computePose draws — used both for the distance metric and (implicitly)
+// to reflect on-screen motion (coords are post-viewAngle projection).
+function poseJoints(po){
+  return [
+    po.hipX,po.hipY, po.sX,po.sY, po.hdX,po.hdY,
+    po.fHipX,po.fHipY, po.bHipX,po.bHipY,
+    po.fShoX,po.fShoY, po.bShoX,po.bShoY,
+    po.fK.x,po.fK.y, po.bK.x,po.bK.y,
+    po.fAn.x,po.fAn.y, po.bAn.x,po.bAn.y,
+    po.fE.x,po.fE.y, po.bE.x,po.bE.y,
+    po.fH.x,po.fH.y, po.bH.x,po.bH.y,
+  ];
+}
+function buildArcTable(p){
+  // Key on everything computePose reads (pose shape) — NOT fps/speed/animOn/feel,
+  // which don't change the linear reference.
+  const key = JSON.stringify([p.legLen,p.armLen,p.torsoLen,p.headSize,p.footSize,
+    p.legBend,p.armBend,p.legRatio,p.armRatio,p.armRaise,p.armDirection,p.armDelay,p.armEase,
+    p.bodyTiltDelay,p.bodyTiltEase,p.spineBend,p.spineDir,p.stepLength,p.stepWidth,
+    p.kneeLift,p.footLift,p.bounce,p.armSwing,p.heelToe,p.leanAngle,p.bodyTilt,
+    p.hipSway,p.hipSwing,p.hipLift,p.shoulderWidth,p.shoulderSwing,p.shoulderLift,
+    p.headPendulum,p.headAngle,p.headDelay,p.viewAngle]);
+  if (key === _arcMemoKey) return _arcMemoVal;
+  const cx = W/2, dir = 1;
+  const cum = new Array(ARC_SAMPLES + 1);
+  let prev = null, total = 0;
+  for (let i = 0; i <= ARC_SAMPLES; i++) {
+    const j = poseJoints(computePose((i/ARC_SAMPLES)*TAU, cx, p, dir));
+    if (prev) { let d = 0; for (let q = 0; q < j.length; q += 2){ const dx=j[q]-prev[q], dy=j[q+1]-prev[q+1]; d += Math.hypot(dx,dy); } total += d; }
+    cum[i] = total; prev = j;
+  }
+  _arcMemoVal = {cum}; _arcMemoKey = key; return _arcMemoVal;
+}
+// Cumulative arc length at an arbitrary phase (linear interp into the table).
+function cumAtPhase(table, ph){
+  const x = (((ph % TAU) + TAU) % TAU) / TAU * ARC_SAMPLES;
+  const i0 = Math.floor(x), i1 = Math.min(i0 + 1, ARC_SAMPLES), f = x - i0;
+  return table.cum[i0] + (table.cum[i1] - table.cum[i0]) * f;
+}
+// Phase inside quarter-segment `seg` (Passing2→Contact→Passing→Contact2→Passing2)
+// at arc-length fraction aFrac∈[0,1] of that segment. aFrac=0 → exact key pose.
+function phaseAtArcFrac(table, seg, aFrac){
+  const loPh = seg * TAU / 4, hiPh = (seg + 1) * TAU / 4;
+  const cumLo = cumAtPhase(table, loPh);
+  const cumHi = (seg === 3) ? table.cum[ARC_SAMPLES] : cumAtPhase(table, hiPh);
+  const span = cumHi - cumLo;
+  if (span <= 1e-6) return loPh + aFrac * (hiPh - loPh);   // degenerate: even fallback
+  const target = cumLo + aFrac * span;
+  let lo = loPh, hi = hiPh;
+  for (let it = 0; it < 40; it++) {
+    const mid = (lo + hi) / 2;
+    const c = (mid >= TAU) ? table.cum[ARC_SAMPLES] : cumAtPhase(table, mid);
+    if (c < target) lo = mid; else hi = mid;
+  }
+  return (lo + hi) / 2;
+}
 // ── Drawing schedule ──────────────────────────────────────────────────────────
-// Within each quarter cycle a power ease pulls drawings toward the key pose at
-// the quarter's start (Contact → Passing → Contact2 → Passing2 → …).
-//   feel=0 → linear, even spacing, all holds equal
-//   feel=1 → cubic ease, drawings bunch near each key pose
-// Drawing COUNT = floor(N / animOn) — set by speed + animOn only, never by feel.
+// Frames are evenly spaced (timing = speed + animOn). The pose each inbetween
+// drawing shows is chosen by FEEL via measured pose-distance (see above); the four
+// key poses stay anchored at the quarter boundaries.
 let _schedMemoKey = null, _schedMemoVal = null;
 function buildSchedule(p) {
-  const memoKey = `${p.fps}|${p.speed}|${p.animOn}|${p.feel}|${p.feelIn}|${p.feelOut}`;
+  const table = buildArcTable(p);
+  const memoKey = `${_arcMemoKey}|${p.fps}|${p.speed}|${p.animOn}|${p.feel}|${p.feelIn}|${p.feelOut}`;
   if (memoKey === _schedMemoKey) return _schedMemoVal;
 
   const N = cycLen(p.fps, p.speed);
@@ -622,12 +687,14 @@ function buildSchedule(p) {
     // Segments 0, 2 end at a Contact pose (t=1) — apply ease-IN (feelIn).
     // Segments 1, 3 start at a Contact pose (t=0) — apply ease-OUT (feelOut).
     // Passing poses are never clustered by either parameter.
+    // The ease selects an ARC-LENGTH fraction (pose-distance), not a phase fraction:
+    // feel=0 → aFrac=t → equal pose-distance; feel up → bunch toward Contact.
     const contactAtEnd = (seg === 0 || seg === 2);
-    const tEased = contactAtEnd
-      ? 1 - Math.pow(1 - t, easeInPow)   // cluster near t=1 (approaching Contact)
-      : Math.pow(t, easeOutPow);          // cluster near t=0 (leaving Contact)
+    const aFrac = contactAtEnd
+      ? 1 - Math.pow(1 - t, easeInPow)   // arc position toward Contact (t→1)
+      : Math.pow(t, easeOutPow);          // arc position toward Contact (t→0)
 
-    const ph = (seg / 4 + tEased / 4) * TAU;
+    const ph = phaseAtArcFrac(table, seg, aFrac);
     entries.push({frame, ph, seg});
   }
 
@@ -728,8 +795,10 @@ const curFrame = schedule[schedIdx].frame;
 
 const chartY = Math.round((GY + H) / 2);
 const chartLeft = 10, chartRight = W - 10, chartW = chartRight - chartLeft;
-// Offset so Contact (ph=TAU×0.25) is at the left edge; cycle runs Contact→Passing→Contact2→Passing2→Contact
-const getX = ph => chartLeft + (((ph / TAU - 0.25 + 1) % 1)) * chartW;
+// X = cumulative pose-distance (arc length) from Contact, so equal-spaced poses
+// read as equal-spaced ticks. Offset so Contact is at the left edge.
+const _arc = buildArcTable(p), _arcTot = _arc.cum[ARC_SAMPLES] || 1, _cumC = cumAtPhase(_arc, TAU * 0.25);
+const getX = ph => chartLeft + ((((cumAtPhase(_arc, ph) - _cumC) / _arcTot) % 1 + 1) % 1) * chartW;
 
 // Closest drawing to each key pose (circular distance handles Passing2 at ph=0≡TAU)
 const poseKeys = new Map();
